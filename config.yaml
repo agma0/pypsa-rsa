@@ -11,7 +11,6 @@ version: 0.1
 # 5. Dispatch modelling and smaller problems can use an open-source solver such as CBC or HIGHS.
 ######################## CONFIGURATION FILE ####################################
 
-#test
 
 logging:
   level: INFO
