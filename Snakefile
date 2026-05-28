@@ -91,6 +91,13 @@ rule prepare_and_solve_network:
     input:
         network = "networks/"+ config["scenarios"]["working_folder"] + "/{scenario}/elec.nc",
         generator_emissions = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/generator_emissions.csv",
+        # AM added: _R scenarios depend on their reference scenario being solved first
+        base_network = lambda w: (
+            "results/" + config["scenarios"]["working_folder"] + "/"
+            + w.scenario.replace("_R", "") + "/networks/solved.nc"
+            if w.scenario.endswith("_R") else []
+        ),
+        # AM added end
     output: 
         network = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/networks/solved.nc",
         network_stats = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/network_stats.csv",

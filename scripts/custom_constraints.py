@@ -342,3 +342,93 @@ def add_annual_co2_constraints(n, sns, scenario_setup, gen_emissions):
         lhs = gen_p.sel(period=y).sum("timestep") * gen_emissions[str(y)]
         rhs = (annual_limits.loc[y] * conv)
         n.model.add_constraints(lhs, "<=", rhs, name = f'annual_carbon_limits_{y}')
+
+
+# AM added -----------------------------------------------------------------------
+def add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake):
+    """
+    Two-stage CT revenue recycling constraint (Paper 0).
+
+    Reads 2030 emissions from the solved reference scenario (e.g. P0_BASE for
+    P0_BASE_R), calculates CT revenues at the official SA 2030 headline rate
+    (462 R/tCO2), and enforces a minimum annualised RE investment >= those revenues.
+
+    Must be called after scale_costs(n, 1e3) — capital_cost in n is already
+    divided by 1e3, so ct_revenues is scaled by the same factor.
+    """
+    reinvest_carriers = ['wind', 'wind_low', 'solar_pv', 'solar_pv_low']
+    ct_rate = 462  # R/tCO2 — official SA 2030 headline rate
+
+    # Step 1: paths to reference scenario outputs (remove _R suffix)
+    # SCENARIO_SETUP is a pandas Series — scenario name is .name, not a key
+    base_scenario  = SCENARIO_SETUP.name.replace("_R", "")
+    working_folder = snakemake.config["scenarios"]["working_folder"]
+    base_net_path  = os.path.join(
+        "results", working_folder, base_scenario, "networks", "solved.nc"
+    )
+    base_emis_path = os.path.join(
+        "results", working_folder, base_scenario, "outputs", "generator_emissions.csv"
+    )
+
+    # Step 2: load reference network and emission factors (pypsa imported at module level)
+    n_base = pypsa.Network(base_net_path)
+    # gen_emissions: index=period (2025,2030), columns=generator names, values=kgCO2/MWh
+    gen_emissions = pd.read_csv(base_emis_path, index_col=0)
+
+    # Step 3: annual generation per generator in 2030 from reference
+    # generators_t.p has MultiIndex (period, snapshot) in multi-invest mode
+    # AM adjusted: must weight by snapshot_weightings before summing — raw .sum() gives MW not MWh
+    #gen_p_annual = n_base.generators_t.p.groupby(level=0).sum()  # AM adjusted: wrong — no weighting
+    w            = n_base.snapshot_weightings["generators"]        # MWh weighting per snapshot
+    gen_p_annual = n_base.generators_t.p.mul(w, axis=0).groupby(level=0).sum()  # period × generator [MWh]
+    gen_p_2030   = gen_p_annual.loc[2030]                         # Series: generator → MWh
+
+    # align generators present in both generation and emission-factor data
+    common_gens  = gen_emissions.columns.intersection(gen_p_2030.index)
+    ef_2030      = gen_emissions.loc[2030, common_gens]           # kgCO2/MWh
+
+    emissions_kg = (gen_p_2030[common_gens] * ef_2030).sum()      # kgCO2
+    emissions_t  = emissions_kg / 1000                             # tCO2
+
+    ct_revenues  = ct_rate * emissions_t                           # R
+
+    logger.info(
+        f"CT reinvestment [{SCENARIO_SETUP.name}]: "
+        f"{emissions_t/1e6:.2f} MtCO2 × {ct_rate} R/t = {ct_revenues/1e9:.2f} bn ZAR"
+    )
+
+    # Step 4: extendable RE generators built in 2030
+    add_gens = n.generators.query(
+        "carrier in @reinvest_carriers and build_year == 2030 and p_nom_extendable"
+    )
+
+    if add_gens.empty:
+        logger.warning(
+            "add_ct_reinvestment_constraint: no extendable RE generators "
+            "with build_year=2030 found — constraint skipped."
+        )
+        return
+
+    # Step 5: linopy constraint
+    # capital_cost [R/MW] has been divided by 1e3 via scale_costs → scale RHS equally
+    p_nom = n.model.variables["Generator-p_nom"].sel({"Generator-ext": add_gens.index})
+    # AM adjusted: add_gens.index has name='Generator' but dim must be 'Generator-ext'
+    # — pass dims explicitly and use .values to strip the pandas index name
+    #costs = xr.DataArray(add_gens["capital_cost"].values, coords={"Generator-ext": add_gens.index})  # AM adjusted: dim mismatch
+    costs = xr.DataArray(
+        add_gens["capital_cost"].values,
+        dims=["Generator-ext"],
+        coords={"Generator-ext": add_gens.index.values}
+    )
+    lhs = (p_nom * costs).sum("Generator-ext")
+
+    ct_revenues_scaled = ct_revenues / 1e3  # match scale_costs(n, 1e3) applied earlier
+
+    n.model.add_constraints(lhs >= ct_revenues_scaled, name="ct_reinvestment")
+
+    logger.info(
+        f"CT reinvestment constraint added: "
+        f"annualised RE investment >= {ct_revenues/1e9:.2f} bn ZAR "
+        f"({len(add_gens)} extendable RE generators)"
+    )
+# AM added -----------------------------------------------------------------------

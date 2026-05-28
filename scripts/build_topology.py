@@ -79,7 +79,8 @@ def load_line_data(line_config):
     lines = gpd.read_file(snakemake.input.existing_lines)
     lines = lines.to_crs(snakemake.config["gis"]["crs"]["distance_crs"])
     lines['status'] = 'existing'
-    lines["build_year"] = int(SCENARIO_SETUP["capacity_expansion_years"][:4]) - 1
+    #lines["build_year"] = int(SCENARIO_SETUP["capacity_expansion_years"][:4]) - 1  # AM adjusted: column renamed to simulation_years
+    lines["build_year"] = int(SCENARIO_SETUP["simulation_years"][:4]) - 1
     lines.rename(columns={'DESIGN_VOL': 'voltage'}, inplace=True)
 
     if "+tdp" in SCENARIO_SETUP.loc['transmission_grid']:

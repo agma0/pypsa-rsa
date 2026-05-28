@@ -67,7 +67,7 @@ from add_electricity import load_extendable_parameters, apply_time_segmentation#
 import xarray as xr
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning) # Comment out for debugging and development
-from custom_constraints import set_operational_limits, ccgt_steam_constraints, reserve_margin_constraints, add_annual_co2_constraints
+from custom_constraints import set_operational_limits, ccgt_steam_constraints, reserve_margin_constraints, add_annual_co2_constraints, add_ct_reinvestment_constraint  # AM adjusted
 idx = pd.IndexSlice
 import os
 from add_electricity import check_pu_profiles
@@ -462,6 +462,11 @@ def solve_network(n, sns, full_outages_pu_max):
 
 
     reserve_margin_constraints(n, sns, SCENARIO_SETUP, snakemake)
+
+    # AM added: CT revenue recycling — runs for unit_committment=0 (P0 scenarios)
+    if SCENARIO_SETUP["carbon_constraints"] == "CT_REINVEST":
+        add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake)
+    # AM added end
 
     if SCENARIO_SETUP["unit_committment"]:
         remove_min_up_down_time_constraints(n)

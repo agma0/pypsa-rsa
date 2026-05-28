@@ -621,22 +621,22 @@ def generate_extendable_wind_solar_profiles(n, gens, snapshots, carriers, pu_pro
         else:
             dataset = f"{base_carrier}_{len(n.buses)}_{config_datasets[base_carrier]}"
             try:
-                #data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset).to_pandas()
-                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset).sel(bus=bus_ref, intra_region=SCENARIO_SETUP["resource_area"]).to_pandas()
+                data = xr.open_dataarray(snakemake.input.renewable_profiles, group=dataset)
+                data.load()  # AM adjusted: force eager load — multiple lazy HDF5 handles on same file cause SIGSEGV
+                data.close()
                 logger.info(f"Loaded dataset {dataset} from {snakemake.input.renewable_profiles}")
             except:
                 logger.error(f"Dataset {dataset} not found in {snakemake.input.renewable_profiles}")
 
         for bus in n.buses.index:
-            #pu_ref = data.sel(bus=bus, intra_region=SCENARIO_SETUP["resource_area"]).to_pandas() if len(n.buses)!=1 else data.dot(weights)     
-            pu_ref = data if len(n.buses)!=1 else data.dot(weights)                
+            pu_ref = data.sel(bus=bus, intra_region=SCENARIO_SETUP["resource_area"]).to_pandas() if len(n.buses)!=1 else data.dot(weights)  # AM adjusted: restore per-bus xarray selection for multi-node
+            #pu_ref = data if len(n.buses)!=1 else data.dot(weights)  # AM adjusted: broken — passes full DataFrame instead of bus-specific Series
             #pu_ref = pu_ref[pu_ref.index.year.isin(snakemake.config["years"]["reference_weather_years"][base_carrier])]
             pu_ref = remove_leap_day(pu_ref)
             pu = pu_ref.copy()
             for y in years:
                 pu.name = f"{bus}-{carrier}-{y}"
                 pu_profiles.loc["max", pu.name] = extend_reference_data(n, pu, snapshots).values * (1 - config["degradation_adj_capacity_factor"][carrier])
-        #data.close()
     return pu_profiles
 
 def generate_rmippp_profiles(gens, pu_profiles):
