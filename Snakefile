@@ -21,6 +21,7 @@ scenarios_to_run = scenarios[(scenarios["run_scenario"]==1)]
 rule solve_all:
     input:
         "results/solve_all_scenarios",
+        "results/plot_all_scenarios",
 
 ############################################################################################################
 # Rules to produce network topology
@@ -64,6 +65,29 @@ rule solve_all_scenarios:
         generate_scenarios()
     output:
         touch("results/solve_all_scenarios")
+
+def generate_plots():
+    outputs = []
+    for sc_id in scenarios_to_run.index:
+        scenario = scenarios_to_run.loc[sc_id, "scenario"]
+        outputs.append("results/" + config["scenarios"]["working_folder"] + f"/{scenario}/outputs/plots/map_only.png")
+    return outputs
+
+rule plot_all_scenarios:
+    input:
+        generate_plots()
+    output:
+        touch("results/plot_all_scenarios")
+
+rule plot_network:
+    input:
+        network = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/networks/solved.nc",
+        supply_regions = "data/Shapefiles/Supply_Areas2022_Steady_State_Limit.shp",
+    output:
+        only_map = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_only.png",
+        ext = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_full.png",
+    script:
+        "scripts/plot_network_sa.py"
 
 rule base_network:
     input:

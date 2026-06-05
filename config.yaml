@@ -239,3 +239,72 @@ solver:
     BarConvTol: 1.e-5
     Crossover: 0
     Threads: 4
+
+plotting:
+  map:
+    figsize: [7, 6]
+    boundaries: [16, -35, 33, -22]
+    p_nom:
+      linewidth_factor: 2000.0
+      bus_size_factor: 80000.0
+  tech_colors:
+    coal: '#545454'
+    nuclear: '#ff8c00'
+    solar_pv: '#ffde08'
+    solar_pv_low: '#f4c430'
+    solar_pv_rooftop: '#ffd700'
+    solar_csp: '#ff7700'
+    wind: '#235ebc'
+    wind_low: '#3a7bbf'
+    ocgt_gas: '#d35050'
+    ocgt_gas_h2_40: '#c84848'
+    ocgt_gas_h2_45: '#be4040'
+    ocgt_gas_h2_50: '#b43838'
+    ocgt_gas_h2_55: '#aa3030'
+    ocgt_gas_h2_60: '#a02828'
+    ocgt_diesel: '#c8a000'
+    ocgt_blend: '#b09000'
+    ccgt_steam: '#e05a00'
+    phs: '#298c81'
+    battery_1h: '#ace37f'
+    battery_4h: '#7ac677'
+    battery_8h: '#5aab66'
+    hydro: '#298c81'
+    hydro+PHS: '#298c81'
+    biomass_MSW: '#166a57'
+    biomass_biogas: '#11684f'
+    biomass_forestry: '#0c6647'
+    biomass_landfill_gas: '#076440'
+    load shedding: '#ff0000'
+    load_shedding: '#ff0000'
+    AC line: '#6c9459'
+    AC-AC: '#6c9459'
+    gas: '#d35050'
+    bioenergy: '#166a57'
+    hydro_import: '#298c81'
+    rmippp: '#a0522d'
+    sasol_coal: '#3d3d3d'
+    sasol_gas: '#c06000'
+  vre_techs: ['wind', 'wind_low', 'solar_pv', 'solar_pv_low', 'solar_pv_rooftop', 'solar_csp']
+  conv_techs: ['coal', 'nuclear', 'ccgt_steam', 'ocgt_gas', 'ocgt_diesel', 'ocgt_blend',
+               'ocgt_gas_h2_40', 'ocgt_gas_h2_45', 'ocgt_gas_h2_50', 'ocgt_gas_h2_55', 'ocgt_gas_h2_60']
+  storage_techs: ['phs', 'battery_1h', 'battery_4h', 'battery_8h']
+  nice_names:
+    coal: Coal
+    nuclear: Nuclear
+    solar_pv: PV
+    solar_pv_low: "PV (low)"
+    solar_pv_rooftop: "PV (rooftop)"
+    solar_csp: CSP
+    wind: Wind
+    wind_low: "Wind (low)"
+    ocgt_gas: "Gas OCGT"
+    ccgt_steam: "Gas CCGT"
+    ocgt_diesel: Diesel
+    ocgt_blend: "Blend OCGT"
+    phs: PHS
+    battery_1h: "Battery 1h"
+    battery_4h: "Battery 4h"
+    battery_8h: "Battery 8h"
+    hydro: Hydro
+    AC line: Transmission

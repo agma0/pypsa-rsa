@@ -480,6 +480,33 @@ All "suspicious" identical values have clear explanations:
 
 ---
 
+## Network Plots
+
+Rule `plot_network` in Snakefile (hinzugefügt 2026-06-06) erzeugt nach jedem Solve automatisch zwei PNGs:
+
+| Output | Inhalt |
+|--------|--------|
+| `results/Coal_Flexibilisation/{scenario}/outputs/plots/map_only.png` | Karte mit Kapazitäts-Pie-Charts pro Bus |
+| `results/Coal_Flexibilisation/{scenario}/outputs/plots/map_full.png` | Karte + Energie-Pie (Strommix) |
+
+Hintergrundlayer: `data/Shapefiles/Supply_Areas2022_Steady_State_Limit.shp` (30 Supply Areas).
+
+**Manuell triggern (einzelnes Szenario):**
+```bash
+snakemake results/Coal_Flexibilisation/P0_BASE/outputs/plots/map_only.png -j 1
+```
+
+**Alle Plots auf einmal (nach solve):**
+```bash
+snakemake results/plot_all_scenarios -j 4
+```
+
+**Automatisch:** `snakemake results/solve_all_scenarios` oder `solve_all` triggert Plots immer mit.
+
+Hinweis: Kostenbalken (`plot_total_cost_bar`) ist deaktiviert — API-Mismatch mit aktuellem `aggregate_costs` in `_helpers.py`.
+
+---
+
 ## Open Items / To Do
 
 ### Priority 1 — Full-resolution runs (LC — 8760 h) ← NEXT STEP

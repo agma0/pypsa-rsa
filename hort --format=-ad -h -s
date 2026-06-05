@@ -1,0 +1,165 @@
+[33m23cfff1[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m test
+[33m8e0447b[m[33m ([m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m)[m restore old file
+[33m35baa4c[m fixing broken files
+[33me8cfdc6[m Merge branch 'master' of https://github.com/agma0/pypsa-rsa
+[33m1f5a530[m unfeasible - error
+[33ma1e6cde[m Add files via upload
+[33m12fdaf7[m Add files via upload
+[33md96f1a5[m parameter changes
+[33md0813a1[m conflict resolved: remote version übernommen
+[33m98b6554[m .
+[33m97ac637[m changes
+[33mae4eb08[m Add files via upload
+[33mb7ce76b[m Add files via upload
+[33me7aa8c5[m parameters changed
+[33mf28a7aa[m paramters
+[33m8f58a24[m supply region = 10, parameter changes
+[33ma97871f[m add scenarios and config
+[33m2872619[m ignore large tif file
+[33m5284c6c[m added carbon tax constraint and scenarios, fixes
+[33m0387cfe[m test
+[33mbf8fe18[m test
+[33ma611686[m test
+[33m5a76f74[m Coal Flexibilisation update
+[33m9827a9b[m resolve cnflict by accepting changs in env
+[33m173f13c[m updated config file
+[33m36dd231[m updated scripts files
+[33m9fe8ed0[m updated helpers script
+[33ma8a5e44[m updated environment.yaml
+[33m88824de[m update pypsa-rsa repo
+[33mb0ef0d7[m updated environment.yaml
+[33m1989910[m Clean documentation
+[33m2361955[m Add files via upload
+[33mf4bd41a[m Update README.md
+[33m9fef52b[m Merge pull request #22 from PeterKlein11/master
+[33mbd1e46a[m Update readthedocs
+[33mc1c018d[m Update README.md
+[33ma69a4cb[m Merge pull request #21 from PeterKlein11/master
+[33mddf9b7e[m Major version update
+[33m1de81fb[m Update README.md
+[33mdc64245[m Merge pull request #19 from PeterKlein11/master
+[33m416240c[m Merge pull request #2 from PeterKlein11/Fix-repo
+[33me37105d[m Excel files update
+[33m0f08ce4[m Update notebooks
+[33m093582d[m Fix snakefile and config
+[33ma7aa2f9[m Update data
+[33m256fdcc[m Fix scripts
+[33m1a0b287[m Outages added to model_file
+[33m256371c[m Fix refactor update
+[33mc65e64d[m Clean up notebooks
+[33m8bac1fb[m Merge pull request #18 from PeterKlein11/master
+[33mc216a39[m Merge branch 'master' into master
+[33ma22030a[m Full refactor update
+[33mcaa7263[m Merge pull request #17 from PeterKlein11/improve_single_year
+[33m7987064[m Merge branch 'master' into improve_single_year
+[33m55501ab[m Draft update complete
+[33m4efe26d[m refactor add_electricity.py
+[33m9b9d934[m Part add_elec refactor
+[33m4c5bbe8[m Merge pull request #16 from PeterKlein11/master
+[33med17dc0[m Refinement to network and topology
+[33m278abc4[m Merge pull request #15 from PeterKlein11/master
+[33mfbc10aa[m add envs folder
+[33m2ce50ae[m Updated build_topology to include St Clair
+[33mcc77a2a[m Merge branch 'master' of github.com:MeridianEconomics/pypsa-za2
+[33mb612cfd[m Updated build_topology
+[33m0f5d105[m Merge pull request #14 from PeterKlein11/master
+[33mc97f8ea[m Clean up old images
+[33m44557b4[m Merge pull request #13 from MeridianEconomics/transmission
+[33m9edc35d[m Data cleanup
+[33mec0afd4[m Merge pull request #12 from MeridianEconomics/transmission
+[33m7685c9e[m update to base_network build_topology
+[33m28ea155[m Cleanup
+[33m1cff30f[m Merge pull request #11 from PeterKlein11/master
+[33m72ed671[m Update network representation to GGCA2022
+[33mad638d2[m Merge pull request #10 from MeridianEconomics/PeterKlein11-update-readme
+[33mc3fe5b4[m Update README.md
+[33ma4e4291[m Merge pull request #9 from MeridianEconomics/ndivhuwoMusehane-patch-1
+[33ma62d84d[m Update README.md for updated PyPSA-ZA
+[33m25c65c6[m Update to use geopackage supply regions
+[33m985f361[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33m9c02d57[m Updates
+[33mb14f94b[m Merge pull request #7 from ndivhuwoMusehane/master
+[33m4153fc5[m documentation update
+[33m5476a0c[m Merge branch 'master' into ndivhuwoMusehane-documents
+[33m940da82[m Merge remote-tracking branch 'upstream/master'
+[33m1cbd218[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33me9be998[m Validation updates
+[33m4660a4f[m Merge branch 'master' into ndivhuwoMusehane-documents
+[33m695156a[m Update documentation content
+[33m071e389[m Merge branch 'ndivhuwoMusehane-documents'
+[33me51dfad[m Update documetation content
+[33me4cf479[m Update conf.py
+[33m35dae2c[m documentation content update
+[33m75bd7f1[m Merge pull request #6 from ndivhuwoMusehane/master
+[33m4c9f7db[m Merge branch 'PeterKlein11:master' into master
+[33m3cd5ea6[m Merge branch 'ndivhuwoMusehane-documents'
+[33md2533bb[m update index
+[33m3a5e9f8[m Test
+[33m3643c58[m Costs updated following discussion with J. Calitz
+[33m2a40b86[m Merge pull request #5 from ndivhuwoMusehane/master
+[33m0b413ce[m Merge branch 'master' of https://github.com/ndivhuwoMusehane/pypsa-za
+[33m7de5d5e[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33mbbcbf57[m Remove icons
+[33m094b647[m Merge pull request #3 from ndivhuwoMusehane/ndivhuwoMusehane-documents
+[33m856e23d[m Remove partial_decommisioning function
+[33mc6b2adc[m update plotting of costs
+[33mc95d349[m Merge branch 'PeterKlein11:master' into master
+[33m14d1ca4[m Update _helpers.py
+[33m1143d5a[m Documentation update
+[33md844176[m Updated aggregate costs in _helpers.py
+[33mfbc8562[m Merge branch 'ndivhuwoMusehane-documents'
+[33m5ce31aa[m Update documentation theme
+[33m3de02e2[m Merge branch 'ndivhuwoMusehane-documents'
+[33me437f68[m Update installation from pypsa-za
+[33m1b497a8[m update static
+[33mb89d43e[m update index location
+[33m4071c54[m Merge branch 'master' of https://github.com/ndivhuwoMusehane/pypsa-za into ndivhuwoMusehane-documents
+[33mb7c9111[m Update documentation links
+[33m4ce1cfd[m update index with pypsa-meets-africa template
+[33m7914d94[m Read the docs documentation initialize
+[33m91d77df[m Merge pull request #1 from ndivhuwoMusehane/ndivhuwoMusehane-updates
+[33mbb6acfc[m Merge branch 'master' into ndivhuwoMusehane-updates
+[33m03eaae8[m Update plot colours to ME colours
+[33mfbe2287[m model_file_update
+[33mded811a[m Model_file update
+[33m1613635[m fix partial_decom error
+[33m8ff9840[m Merge pull request #1 from PeterKlein11/Refactor
+[33m6805406[m Jan 4 Updates
+[33me3a5513[m Start refactor add_elec
+[33m140b4ec[m Updated topology and base network
+[33mf3c9c8a[m Base network and build_topology
+[33m50836f8[m Fixed yaml bug
+[33m53e61cf[m Update clean
+[33m53a038e[m Exclude landusetypes
+[33m55edeeb[m Windows update
+[33m6cbbf75[m Ubuntu update
+[33md75a409[m apply_wind_correction rule added to the snakefile
+[33mee58814[m Resave
+[33m29f6f54[m Added notebook on atlite_correction
+[33m2276717[m Projected EAF change
+[33m69b4cc6[m PHS issue fixed
+[33m31dc514[m Updated data folder
+[33m1852195[m Update renewables profiles to limit to redz or corridors
+[33mbb768f0[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33m40c8035[m Merge branch 'add-build_natura_raster.py-from-pypsa-eur'
+[33ma5c0cb5[m add build natura raster to rasterize SAPAD and SACAD
+[33m3c89d66[m Eskom data
+[33mf7de30e[m Cleaned up scripts folder
+[33m7c7d1ae[m Moved other_re_profiles to add_electricity
+[33m122aebd[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33m4c8448c[m p_pu_max corrected
+[33m301df6b[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33me4f6b37[m write buses for onshore region to geojson
+[33m13b983a[m Updated changes to snakefile
+[33m3124f11[m Modified opts base_network
+[33mda1cadb[m add_electricity wildcards updated
+[33mb7a40f0[m Merge branch 'renewables_profiles'
+[33m7a73cfb[m resolve add_electricity inputs
+[33mf41d256[m Read renewables profiles netcfd instead of  excel data
+[33m71d8997[m Merge branch 'master' of https://github.com/PeterKlein11/pypsa-za
+[33mf9c3c35[m Annual build limits updated for storage
+[33mf9fa73d[m Updated segmentation
+[33m8c09a05[m update snakefile
+[33m081fd14[m Uddate snakefile and config
+[33mddca0ed[m correct snakefile and config file for correct cutout name
+[33m833b8df[m ignore
