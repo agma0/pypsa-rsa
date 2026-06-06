@@ -350,9 +350,9 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
     carriers = [c for c in CARRIER_ORDER if c in present]
     carriers += [c for c in present if c not in CARRIER_ORDER]
 
-    # bar x-positions: Capital=0.2, Marginal=0.5, Grid=0.8  width=0.25
-    bw = 0.25
-    x_cap, x_marg, x_grid = 0.2, 0.5, 0.8
+    # bar x-positions: Capital, Marginal, CO2, Grid  width=0.22
+    bw = 0.22
+    x_cap, x_marg, x_co2, x_grid = 0.15, 0.42, 0.69, 0.96
 
     bottom_cap = 0.0
     bottom_marg = 0.0
@@ -370,41 +370,41 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
         bottom_cap  += cap
         bottom_marg += marg
 
-    # Bar 3: CO2 cost — commented out for now to focus on capital/marginal
-    # if gen_emissions_df is not None:
-    #     ct_rate = opts.get("carbon_tax_rate_2030", 462)
-    #     energy_all = (
-    #         n.generators_t.p
-    #         .multiply(n.snapshot_weightings.generators, axis=0)
-    #         .groupby(level=0).sum()
-    #     )
-    #     common = gen_emissions_df.columns.intersection(energy_all.columns)
-    #     carrier_map = n.generators.loc[common, "carrier"].map(
-    #         lambda c: CARRIER_REMAP.get(c, c)
-    #     )
-    #     co2_cost_total = pd.Series(0.0, index=carrier_map.unique())
-    #     for y in n.investment_periods:
-    #         if y not in gen_emissions_df.index:
-    #             continue
-    #         co2_cost_y = energy_all.loc[y, common] * gen_emissions_df.loc[y, common] * ct_rate / 1000
-    #         co2_cost_total = co2_cost_total.add(
-    #             co2_cost_y.groupby(carrier_map).sum(), fill_value=0
-    #         )
-    #     co2_by_carrier = co2_cost_total[
-    #         (~co2_cost_total.index.isin(CARRIER_DROP)) & (co2_cost_total > 0)
-    #     ] / total_load
-    #     print(f"[cost bar] CO2 total={co2_by_carrier.sum():.1f} R/MWh")
-    #     bottom_co2 = 0.0
-    #     for c in CARRIER_ORDER:
-    #         if c not in co2_by_carrier.index:
-    #             continue
-    #         val = co2_by_carrier[c]
-    #         ax.bar([x_co2], [val], bottom=bottom_co2, color=tech_colors.get(c, "gray"),
-    #                width=bw, zorder=-1)
-    #         if val > 30:
-    #             ax.text(x_co2, bottom_co2 + 0.5 * val, nice_names.get(c, c),
-    #                     ha="center", va="center", fontsize=7, color="white")
-    #         bottom_co2 += val
+    # Bar 3: CO2 cost by carrier [R/MWh]
+    if gen_emissions_df is not None:
+        ct_rate = opts.get("carbon_tax_rate_2030", 462)
+        energy_all = (
+            n.generators_t.p
+            .multiply(n.snapshot_weightings.generators, axis=0)
+            .groupby(level=0).sum()
+        )
+        common = gen_emissions_df.columns.intersection(energy_all.columns)
+        carrier_map = n.generators.loc[common, "carrier"].map(
+            lambda c: CARRIER_REMAP.get(c, c)
+        )
+        co2_cost_total = pd.Series(0.0, index=carrier_map.unique())
+        for y in n.investment_periods:
+            if y not in gen_emissions_df.index:
+                continue
+            co2_cost_y = energy_all.loc[y, common] * gen_emissions_df.loc[y, common] * ct_rate / 1000
+            co2_cost_total = co2_cost_total.add(
+                co2_cost_y.groupby(carrier_map).sum(), fill_value=0
+            )
+        co2_by_carrier = co2_cost_total[
+            (~co2_cost_total.index.isin(CARRIER_DROP)) & (co2_cost_total > 0)
+        ] / total_load
+        print(f"[cost bar] CO2 total={co2_by_carrier.sum():.1f} R/MWh")
+        bottom_co2 = 0.0
+        for c in CARRIER_ORDER:
+            if c not in co2_by_carrier.index:
+                continue
+            val = co2_by_carrier[c]
+            ax.bar([x_co2], [val], bottom=bottom_co2, color=tech_colors.get(c, "gray"),
+                   width=bw, zorder=-1)
+            if val > 30:
+                ax.text(x_co2, bottom_co2 + 0.5 * val, nice_names.get(c, c),
+                        ha="center", va="center", fontsize=7, color="white")
+            bottom_co2 += val
 
     # Bar 3: Grid (AC line) capital cost [R/MWh]
     grid_color = opts["tech_colors"].get("AC line", "#6c9459")
@@ -415,10 +415,11 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
                 ha="center", va="center", fontsize=7, color="white")
     print(f"[cost bar] Grid={grid_rmwh:.1f} R/MWh")
 
-    ax.set_xticks([x_cap, x_marg, x_grid])
-    ax.set_xticklabels(["Capital", "Marginal", "Grid"], fontsize=8)
+    ct_rate = opts.get("carbon_tax_rate_2030", 462)
+    ax.set_xticks([x_cap, x_marg, x_co2, x_grid])
+    ax.set_xticklabels(["Capital", "Marginal", f"CO₂\n({ct_rate} R/t)", "Grid"], fontsize=8)
     ax.set_ylabel("Avg system cost [R/MWh]")
-    ax.set_xlim([0, 1.0])
+    ax.set_xlim([0, 1.15])
     ax.set_title("System Cost", fontdict=dict(fontsize="medium"))
     ax.grid(True, axis="y", color="k", linestyle="dotted")
 

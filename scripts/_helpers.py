@@ -417,7 +417,7 @@ def aggregate_costs(n):
         if c.name not in ["Line", "Transformer"]: 
             marginal_costs = (
                     get_as_dense(n, c.name, "marginal_cost", n.snapshots)
-                    .mul(n.snapshot_weightings.objective, axis=0)
+                    .mul(n.snapshot_weightings.generators, axis=0)
             )
 
         fixed_cost_tmp=pd.DataFrame(0.0,index=n.df(c.name).carrier.unique(),columns=n.investment_periods)
