@@ -148,8 +148,8 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
 
     ## DATA
     line_colors = {
-        "cur": "purple",
-        "exp": mpl.colors.rgb2hex(to_rgba("red", 0.7), True),
+        "cur": "#aec7e8",   # light blue — existing lines
+        "exp": "#1f77b4",   # strong blue — expanded lines
     }
     tech_colors = opts["tech_colors"]
 
@@ -172,16 +172,17 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     else:
         raise "plotting of {} has not been implemented yet".format(attribute)
 
-    line_colors_with_alpha = (line_widths_cur > 1e-3).map(
-        {True: line_colors["cur"], False: to_rgba(line_colors["cur"], 0.0)}
-    )
-    link_colors_with_alpha = (link_widths_cur > 1e-3).map(
-        {True: line_colors["cur"], False: to_rgba(line_colors["cur"], 0.0)}
-    )
-
     ## FORMAT
     linewidth_factor = opts["map"][attribute]["linewidth_factor"]
     bus_size_factor = opts["map"][attribute]["bus_size_factor"]
+
+    # Color each line: dark blue = expanded, light blue = existing
+    color_exp = line_colors["exp"]   # dark blue
+    color_cur = line_colors["cur"]   # light blue
+    expanded_lines = (n.lines.s_nom_opt - n.lines.s_nom) > 0.01 * n.lines.s_nom.clip(lower=1)
+    line_colors_map = expanded_lines.map({True: color_exp, False: color_cur})
+    expanded_links = (n.links.p_nom_opt - n.links.p_nom) > 0.01 * n.links.p_nom.clip(lower=1)
+    link_colors_map = expanded_links.map({True: color_exp, False: color_cur})
 
     if supply_regions_path is not None:
         supply_regions = gpd.read_file(supply_regions_path)
@@ -192,26 +193,14 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     if boundaries is not None:
         ax.set_extent(boundaries, crs=ccrs.PlateCarree())
 
-    ## PLOT — first pass: total optimal capacity (expansion shown in red)
+    ## PLOT — single pass: color by expansion status (green=existing, red=expanded)
     n.plot(
         line_widths=line_widths_exp / linewidth_factor,
         link_widths=link_widths_exp / linewidth_factor,
-        line_colors=line_colors["exp"],
-        link_colors=line_colors["exp"],
+        line_colors=line_colors_map,
+        link_colors=link_colors_map,
         bus_sizes=bus_sizes / bus_size_factor,
         bus_colors=tech_colors,
-        boundaries=boundaries,
-        color_geomap=True,
-        geomap=True,
-        ax=ax,
-    )
-    # Second pass: existing capacity overlaid in purple (hides red where no expansion)
-    n.plot(
-        line_widths=line_widths_cur / linewidth_factor,
-        link_widths=link_widths_cur / linewidth_factor,
-        line_colors=line_colors_with_alpha,
-        link_colors=link_colors_with_alpha,
-        bus_sizes=0,
         boundaries=boundaries,
         color_geomap=True,
         geomap=True,
@@ -221,70 +210,47 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     ax.axis("off")
 
     # Rasterize basemap
-    # TODO : Check if this also works with cartopy
     for c in ax.collections[:2]:
         c.set_rasterized(True)
 
-    # LEGEND
-    handles = []
-    labels = []
-    for s in (10, 1):
-        handles.append(plt.Line2D([0], [0], color=line_colors["exp"],
-                                  linewidth=s * 1e3 / linewidth_factor))
-        labels.append("{} GW new".format(s))
-    for s in (10, 1):
-        handles.append(plt.Line2D([0], [0], color=line_colors["cur"],
-                                  linewidth=s * 1e3 / linewidth_factor))
-        labels.append("{} GW exist.".format(s))
-    l1_1 = ax.legend(
-        handles,
-        labels,
+    # LEGEND — Capacity (left) + Netz (right), 2×2 side by side
+    # Capacity: 2 circles
+    cap_handles = make_legend_circles_for(
+        [10e3, 1e3], scale=bus_size_factor, facecolor="w"
+    )
+    cap_labels = ["10 GW", "1 GW"]
+    l2 = ax.legend(
+        cap_handles,
+        cap_labels,
         loc="upper left",
-        bbox_to_anchor=(0.3, 1.01),
+        bbox_to_anchor=(0.01, 1.07),
         frameon=False,
         labelspacing=0.8,
-        handletextpad=1.5,
-        ncol=2,
-        title="Transmission",
-    )
-    ax.add_artist(l1_1)
-
-    handles = []
-    labels = []
-    for s in (10, 5):
-        handles.append(
-            plt.Line2D(
-                [0], [0], color=line_colors["cur"], linewidth=s * 1e3 / linewidth_factor
-            )
-        )
-        # labels.append("/")
-    #    l1_2 = ax.legend(
-    #        handles,
-    #        labels,
-    #        loc="upper left",
-    #        bbox_to_anchor=(0.26, 1.01),
-    #        frameon=False,
-    #        labelspacing=0.8,
-    #        handletextpad=0.5,
-    #        title=" ",
-    #    )
-    #    ax.add_artist(l1_2)
-
-    handles = make_legend_circles_for(
-        [10e3, 5e3, 1e3], scale=bus_size_factor, facecolor="w"
-    )
-    labels = ["{} GW".format(s) for s in (10, 5, 3)]
-    l2 = ax.legend(
-        handles,
-        labels,
-        loc="upper left",
-        bbox_to_anchor=(0.02, 1.01),
-        frameon=False,
-        labelspacing=1.0,
+        fontsize=7,
         title="Capacity",
+        title_fontsize=7,
         handler_map=make_handler_map_to_scale_circles_as_in(ax),
     )
     ax.add_artist(l2)
+
+    # Netz: expanded + existing (one representative line each)
+    net_handles = [
+        plt.Line2D([0], [0], color=color_exp, linewidth=3),
+        plt.Line2D([0], [0], color=color_cur, linewidth=3),
+    ]
+    net_labels = ["Expanded", "Existing"]
+    l1_1 = ax.legend(
+        net_handles,
+        net_labels,
+        loc="upper left",
+        bbox_to_anchor=(0.28, 1.07),
+        frameon=False,
+        labelspacing=0.8,
+        fontsize=7,
+        title="Netz",
+        title_fontsize=7,
+    )
+    ax.add_artist(l1_1)
 
     # carriers present in data, sorted by CARRIER_ORDER
     present = set(bus_sizes.index.get_level_values(1).unique())
@@ -356,77 +322,116 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
     fixed_cost, variable_cost = aggregate_costs(n)
 
     # sum over duplicate component rows and all investment periods, then group
-    fc = group_carriers(fixed_cost.groupby(level=0).sum().sum(axis=1))
-    vc = group_carriers(variable_cost.groupby(level=0).sum().sum(axis=1))
+    fc_raw = fixed_cost.groupby(level=0).sum()
+    vc_raw = variable_cost.groupby(level=0).sum()
 
-    total_load = (n.snapshot_weightings.generators * n.loads_t.p_set.sum(axis=1)).sum()
+    # grid (AC line) capital cost — kept separate before grouping
+    grid_fc = fc_raw.loc["AC line"].sum() if "AC line" in fc_raw.index else 0.0
+
+    drop = {"load", "load_shedding", "AC transformer", "AC line", "AC-AC"}
+    fc = group_carriers(fc_raw.sum(axis=1).drop(index=drop, errors="ignore"))
+    vc = group_carriers(vc_raw.sum(axis=1).drop(index=drop, errors="ignore"))
+
+    from _helpers import get_as_dense
+    load_p = get_as_dense(n, "Load", "p_set", n.snapshots).sum(axis=1)
+    total_load = (n.snapshot_weightings.generators * load_p).sum()
+
+    print(f"[cost bar] total_load={total_load/1e6:.1f} TWh, "
+          f"FC={fc.sum()/1e9:.2f} bn ZAR, VC={vc.sum()/1e9:.2f} bn ZAR, "
+          f"Grid={grid_fc/1e9:.2f} bn ZAR")
+    print(f"[cost bar] FC by carrier [R/MWh]:\n"
+          + "\n".join(f"  {c}: {fc.get(c,0)/total_load:.1f}" for c in fc.index if fc.get(c,0)>0))
+    print(f"[cost bar] VC by carrier [R/MWh]:\n"
+          + "\n".join(f"  {c}: {vc.get(c,0)/total_load:.1f}" for c in vc.index if vc.get(c,0)>0))
 
     all_carriers = fc.index.union(vc.index)
-    drop = {"load", "load_shedding", "AC transformer", "AC line", "AC-AC"}
-    present = [c for c in all_carriers if c in tech_colors and c not in drop
+    present = [c for c in all_carriers if c in tech_colors
                and (fc.get(c, 0.0) + vc.get(c, 0.0)) > 0]
     carriers = [c for c in CARRIER_ORDER if c in present]
     carriers += [c for c in present if c not in CARRIER_ORDER]
+
+    # bar x-positions: Capital=0.2, Marginal=0.5, Grid=0.8  width=0.25
+    bw = 0.25
+    x_cap, x_marg, x_grid = 0.2, 0.5, 0.8
 
     bottom_cap = 0.0
     bottom_marg = 0.0
     for c in carriers:
         cap  = fc.get(c, 0.0) / total_load
         marg = vc.get(c, 0.0) / total_load
-        ax.bar([0.2], [cap],  bottom=bottom_cap,  color=tech_colors[c], width=0.3, zorder=-1)
-        ax.bar([0.55], [marg], bottom=bottom_marg, color=tech_colors[c], width=0.3, zorder=-1)
+        ax.bar([x_cap],  [cap],  bottom=bottom_cap,  color=tech_colors[c], width=bw, zorder=-1)
+        ax.bar([x_marg], [marg], bottom=bottom_marg, color=tech_colors[c], width=bw, zorder=-1)
         if cap > 30:
-            ax.text(0.2, bottom_cap + 0.5 * cap, nice_names.get(c, c),
+            ax.text(x_cap,  bottom_cap  + 0.5 * cap,  nice_names.get(c, c),
                     ha="center", va="center", fontsize=7, color="white")
         if marg > 30:
-            ax.text(0.55, bottom_marg + 0.5 * marg, nice_names.get(c, c),
+            ax.text(x_marg, bottom_marg + 0.5 * marg, nice_names.get(c, c),
                     ha="center", va="center", fontsize=7, color="white")
         bottom_cap  += cap
         bottom_marg += marg
 
-    # Bar 3: CO2 cost by carrier [R/MWh]
-    if gen_emissions_df is not None:
-        ct_rate = opts.get("carbon_tax_rate_2030", 462)
-        y = 2030 if 2030 in gen_emissions_df.index else gen_emissions_df.index[-1]
-        energy_y = (
-            n.generators_t.p
-            .multiply(n.snapshot_weightings.generators, axis=0)
-            .groupby(level=0).sum()
-            .loc[y]
-        )
-        common = gen_emissions_df.columns.intersection(energy_y.index)
-        # CO2 cost per generator [R] = MWh × kgCO2/MWh × R/tCO2 / 1000
-        co2_cost = energy_y[common] * gen_emissions_df.loc[y, common] * ct_rate / 1000
-        carrier_map = n.generators.loc[common, "carrier"].map(
-            lambda c: CARRIER_REMAP.get(c, c)
-        )
-        co2_by_carrier = co2_cost.groupby(carrier_map).sum()
-        co2_by_carrier = co2_by_carrier[
-            ~co2_by_carrier.index.isin(CARRIER_DROP) & (co2_by_carrier > 0)
-        ] / total_load
+    # Bar 3: CO2 cost — commented out for now to focus on capital/marginal
+    # if gen_emissions_df is not None:
+    #     ct_rate = opts.get("carbon_tax_rate_2030", 462)
+    #     energy_all = (
+    #         n.generators_t.p
+    #         .multiply(n.snapshot_weightings.generators, axis=0)
+    #         .groupby(level=0).sum()
+    #     )
+    #     common = gen_emissions_df.columns.intersection(energy_all.columns)
+    #     carrier_map = n.generators.loc[common, "carrier"].map(
+    #         lambda c: CARRIER_REMAP.get(c, c)
+    #     )
+    #     co2_cost_total = pd.Series(0.0, index=carrier_map.unique())
+    #     for y in n.investment_periods:
+    #         if y not in gen_emissions_df.index:
+    #             continue
+    #         co2_cost_y = energy_all.loc[y, common] * gen_emissions_df.loc[y, common] * ct_rate / 1000
+    #         co2_cost_total = co2_cost_total.add(
+    #             co2_cost_y.groupby(carrier_map).sum(), fill_value=0
+    #         )
+    #     co2_by_carrier = co2_cost_total[
+    #         (~co2_cost_total.index.isin(CARRIER_DROP)) & (co2_cost_total > 0)
+    #     ] / total_load
+    #     print(f"[cost bar] CO2 total={co2_by_carrier.sum():.1f} R/MWh")
+    #     bottom_co2 = 0.0
+    #     for c in CARRIER_ORDER:
+    #         if c not in co2_by_carrier.index:
+    #             continue
+    #         val = co2_by_carrier[c]
+    #         ax.bar([x_co2], [val], bottom=bottom_co2, color=tech_colors.get(c, "gray"),
+    #                width=bw, zorder=-1)
+    #         if val > 30:
+    #             ax.text(x_co2, bottom_co2 + 0.5 * val, nice_names.get(c, c),
+    #                     ha="center", va="center", fontsize=7, color="white")
+    #         bottom_co2 += val
 
-        bottom_co2 = 0.0
-        for c in CARRIER_ORDER:
-            if c not in co2_by_carrier.index:
-                continue
-            val = co2_by_carrier[c]
-            ax.bar([0.9], [val], bottom=bottom_co2, color=tech_colors.get(c, "gray"),
-                   width=0.3, zorder=-1)
-            if val > 30:
-                ax.text(0.9, bottom_co2 + 0.5 * val, nice_names.get(c, c),
-                        ha="center", va="center", fontsize=7, color="white")
-            bottom_co2 += val
+    # Bar 3: Grid (AC line) capital cost [R/MWh]
+    grid_color = opts["tech_colors"].get("AC line", "#6c9459")
+    grid_rmwh = grid_fc / total_load if total_load > 0 else 0.0
+    ax.bar([x_grid], [grid_rmwh], color=grid_color, width=bw, zorder=-1)
+    if grid_rmwh > 30:
+        ax.text(x_grid, 0.5 * grid_rmwh, "Grid",
+                ha="center", va="center", fontsize=7, color="white")
+    print(f"[cost bar] Grid={grid_rmwh:.1f} R/MWh")
 
-        ax.set_xticks([0.2, 0.55, 0.9])
-        ax.set_xticklabels(["Capital", "Marginal", f"CO₂\n({ct_rate} R/t)"], fontsize=8)
-    else:
-        ax.set_xticks([0.2, 0.55])
-        ax.set_xticklabels(["Capital", "Marginal"], fontsize=9)
-
+    ax.set_xticks([x_cap, x_marg, x_grid])
+    ax.set_xticklabels(["Capital", "Marginal", "Grid"], fontsize=8)
     ax.set_ylabel("Avg system cost [R/MWh]")
-    ax.set_xlim([0, 1.1])
+    ax.set_xlim([0, 1.0])
     ax.set_title("System Cost", fontdict=dict(fontsize="medium"))
     ax.grid(True, axis="y", color="k", linestyle="dotted")
+
+    # Cost summary text below bars — plain text, no box, values from already-computed fc/vc
+    fc_total = sum(fc.get(c, 0.0) for c in carriers)
+    vc_total = sum(vc.get(c, 0.0) for c in carriers)
+    total_all = fc_total + vc_total + grid_fc
+    ax.text(
+        0.5, -0.38,
+        f"Capital {fc_total/1e9:.0f}  Marginal {vc_total/1e9:.0f}  "
+        f"Grid {grid_fc/1e9:.0f}  Total {total_all/1e9:.0f}  [bn ZAR/a]",
+        transform=ax.transAxes, ha="center", va="top", fontsize=7,
+    )
 
 
 ##########
@@ -463,6 +468,7 @@ if __name__ == "__main__":
 
     # Load generator emissions once — used for CO2 text and cost bar
     gen_em = None
+    co2_2030 = 0.0
     try:
         gen_em = pd.read_csv(snakemake.input.gen_emissions, index_col=0)
         energy_all = (

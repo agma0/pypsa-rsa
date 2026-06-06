@@ -420,8 +420,8 @@ def aggregate_costs(n):
                     .mul(n.snapshot_weightings.objective, axis=0)
             )
 
-        fixed_cost_tmp=pd.DataFrame(0,index=n.df(c.name).carrier.unique(),columns=n.investment_periods)
-        variable_cost_tmp=pd.DataFrame(0,index=n.df(c.name).carrier.unique(),columns=n.investment_periods)
+        fixed_cost_tmp=pd.DataFrame(0.0,index=n.df(c.name).carrier.unique(),columns=n.investment_periods)
+        variable_cost_tmp=pd.DataFrame(0.0,index=n.df(c.name).carrier.unique(),columns=n.investment_periods)
     
         for y in n.investment_periods:
             fixed_cost_tmp.loc[:,y] = (active[y]*c.df[p_nom]*c.df.capital_cost).groupby(c.df.carrier).sum()
