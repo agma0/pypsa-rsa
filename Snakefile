@@ -84,6 +84,7 @@ rule plot_network:
         network = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/networks/solved.nc",
         supply_regions = "data/Shapefiles/11-supply.shp",
         resarea = "data/bundle/REDZ_DEA_Unpublished_Draft_2015/REDZ_DEA_Unpublished_Draft_2015.shp",
+        gen_emissions = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/generator_emissions.csv",
     output:
         only_map = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_only.png",
         ext = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_full.png",

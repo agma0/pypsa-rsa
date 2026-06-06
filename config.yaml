@@ -241,6 +241,7 @@ solver:
     Threads: 4
 
 plotting:
+  carbon_tax_rate_2030: 462  # R/tCO2 — used for CO2 cost bar in plots
   map:
     figsize: [7, 6]
     boundaries: [14, 34, -35, -22]  # [lon_min, lon_max, lat_min, lat_max]
@@ -256,6 +257,7 @@ plotting:
     solar_csp: '#ff7700'
     wind: '#235ebc'
     wind_low: '#3a7bbf'
+    ocgt: '#d35050'       # grouped: all OCGT variants
     ocgt_gas: '#d35050'
     ocgt_gas_h2_40: '#c84848'
     ocgt_gas_h2_45: '#be4040'
@@ -266,6 +268,7 @@ plotting:
     ocgt_blend: '#b09000'
     ccgt_steam: '#e05a00'
     phs: '#298c81'
+    battery: '#ace37f'    # grouped: all battery variants
     battery_1h: '#ace37f'
     battery_4h: '#7ac677'
     battery_8h: '#5aab66'
@@ -285,10 +288,9 @@ plotting:
     rmippp: '#a0522d'
     sasol_coal: '#3d3d3d'
     sasol_gas: '#c06000'
-  vre_techs: ['wind', 'wind_low', 'solar_pv', 'solar_pv_low', 'solar_pv_rooftop', 'solar_csp']
-  conv_techs: ['coal', 'nuclear', 'ccgt_steam', 'ocgt_gas', 'ocgt_diesel', 'ocgt_blend',
-               'ocgt_gas_h2_40', 'ocgt_gas_h2_45', 'ocgt_gas_h2_50', 'ocgt_gas_h2_55', 'ocgt_gas_h2_60']
-  storage_techs: ['phs', 'battery_1h', 'battery_4h', 'battery_8h']
+  vre_techs: ['wind', 'solar_pv', 'solar_csp']
+  conv_techs: ['coal', 'nuclear', 'ccgt_steam', 'ocgt']
+  storage_techs: ['phs', 'battery']
   nice_names:
     coal: Coal
     nuclear: Nuclear
@@ -298,13 +300,18 @@ plotting:
     solar_csp: CSP
     wind: Wind
     wind_low: "Wind (low)"
+    ocgt: "OCGT"
     ocgt_gas: "Gas OCGT"
     ccgt_steam: "Gas CCGT"
     ocgt_diesel: Diesel
     ocgt_blend: "Blend OCGT"
     phs: PHS
+    battery: Battery
     battery_1h: "Battery 1h"
     battery_4h: "Battery 4h"
     battery_8h: "Battery 8h"
     hydro: Hydro
+    rmippp: RMIPPP
+    sasol_coal: "Sasol Coal"
+    sasol_gas: "Sasol Gas"
     AC line: Transmission
