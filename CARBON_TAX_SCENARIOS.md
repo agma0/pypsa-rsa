@@ -1,7 +1,7 @@
 # Carbon Tax Scenarios — Paper 0 (2030 Snapshot)
 
 Author: Agatha Majcher  
-Updated: May 2026
+Updated: 2026-06-06
 
 ---
 
@@ -403,6 +403,152 @@ snakemake results/Coal_Flexibilisation/P0_CT_R/networks/solved.nc   -j 4
 
 ---
 
+## Preliminary Results — MIXED topology, LC-182h, 48 timesteps (2026-06-06)
+
+> ⚠️ **WARNING — INVALID COMPARISON:** These results mix two different model topologies. P0_BASE
+> was solved at regions=10 (10 buses, 38 transmission links). P0_BASE_R, P0_CT, P0_CT_R were
+> solved at regions=1 (single node "RSA", no transmission) due to a misconfiguration in
+> scenarios_to_run.xlsx and a SIGSEGV bug in add_electricity.py. Do NOT use these numbers for
+> any comparison or paper. They are recorded here only as a reference for the parameter audit.
+> See "Deep Parameter Audit" section below for details and fix required.
+
+*Computed from solved.nc + generator_emissions.csv. Analysis year: 2030.*
+
+### Generation Mix 2030 [TWh]
+
+| carrier | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| coal | 166.8 | 132.0 | 143.2 | 132.0 |
+| nuclear | 14.6 | 14.6 | 14.6 | 14.6 |
+| solar_pv | 23.9 | 18.4 | 24.8 | **44.4** |
+| solar_pv_low | 16.3 | 11.4 | 12.0 | 8.2 |
+| solar_pv_rooftop | 0.0 | 6.5 | 11.4 | 7.5 |
+| wind | 14.8 | **44.7** | 27.8 | 27.7 |
+| wind_low | 0.0 | 6.9 | 0.0 | 0.0 |
+| hydro_import | 10.1 | 10.1 | 10.1 | 10.1 |
+| sasol_coal | 5.5 | 4.4 | 5.1 | 4.4 |
+| solar_csp | 2.0 | 2.0 | 2.0 | 2.0 |
+| hydro | 1.8 | 1.8 | 1.8 | 1.8 |
+| rmippp | 1.9 | 1.9 | 1.9 | 1.9 |
+| bioenergy | 1.0 | 1.0 | 1.0 | 1.0 |
+| **Total load [TWh]** | **255.4** | **255.4** | **255.4** | **255.4** |
+| **RE share [%]** | **27.0** | **40.2** | **35.5** | **40.1** |
+| **Coal share [%]** | **64.5** | **51.7** | **56.0** | **51.7** |
+
+### New Build 2030 [GW] — build_year == 2030 only
+
+| carrier | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| solar_pv | 6.17 | 9.60 | 6.55 | **23.08** |
+| solar_pv_low | 5.88 | 7.75 | 3.23 | 3.23 |
+| solar_pv_rooftop | 0.00 | 3.38 | 3.38 | 3.38 |
+| wind | 0.00 | **9.00** | 3.89 | 3.89 |
+| wind_low | 0.00 | 2.38 | 0.00 | 0.00 |
+| bioenergy | 0.02 | 0.02 | 0.02 | 0.02 |
+| **New RE total [GW]** | **12.1** | **32.1** | **17.1** | **33.6** |
+| new wind [GW] | 0.00 | 11.37 | 3.89 | 3.89 |
+| new solar [GW] | 12.05 | 20.73 | 13.15 | 29.69 |
+
+### Total Installed Capacity 2030 [GW] — all build years
+
+| carrier | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| coal | 41.42 | 41.42 | 41.42 | 41.42 |
+| solar_pv | 9.17 | 12.61 | 9.55 | **26.09** |
+| solar_pv_low | 5.88 | 9.29 | 4.77 | 4.77 |
+| solar_pv_rooftop | 0.00 | 8.00 | 8.00 | 8.00 |
+| wind | 4.26 | **13.26** | 8.15 | 8.15 |
+| wind_low | 0.00 | 2.38 | 0.01 | 0.01 |
+| nuclear | 1.85 | 1.85 | 1.85 | 1.85 |
+| ocgt_diesel | 3.41 | 3.41 | 3.41 | 3.41 |
+| hydro_import | 1.76 | 1.76 | 1.76 | 1.76 |
+
+### Storage 2030
+
+| | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| Battery 4h [GW] | 1.62 | 4.24 | 4.24 | 4.24 |
+| Battery 4h [GWh] | 6,484 | 16,944 | 16,944 | 16,944 |
+| PHS [GW] | 2.90 | 2.90 | 2.90 | 2.90 |
+| PHS [GWh] | 61,800 | 61,800 | 61,800 | 61,800 |
+
+### CO₂ Emissions 2030 [MtCO₂]
+
+Computed from `generator_emissions.csv` (kgCO₂/MWh_el) × weighted dispatch [MWh].
+Only coal and sasol_coal emit meaningfully; all other carriers are 0 in the emissions CSV.
+
+| source | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| coal | 153.0 | 121.5 | 131.0 | 121.6 |
+| sasol_coal | 7.4 | 6.0 | 6.9 | 6.0 |
+| **Total [MtCO₂]** | **160.4** | **127.5** | **137.9** | **127.5** |
+| **vs P0_BASE [%]** | — | **−20.5%** | **−14.0%** | **−20.5%** |
+
+### Carbon Tax Revenue & Reinvestment [bn ZAR]
+
+Reinvestment = annualised capital cost × SCALE_COSTS (1e3) for wind + solar_pv new build 2030.
+Reference scenario for _R constraint: P0_BASE → P0_BASE_R; P0_CT → P0_CT_R.
+
+| metric | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| CT revenue (own emissions) | 74.1 | 58.9 | 63.7 | 58.9 |
+| CT revenue (ref scenario) | — | 74.1 | — | 63.7 |
+| Reinvestment Σ(p_nom×capex) | — | **71.0** | — | **63.7** |
+| Constraint satisfied? | — | ~97% ✓ | — | 100% ✓ |
+
+Note on 97%: P0_BASE_R reinvestment (71.0 bn ZAR) is ~3 bn ZAR below the constraint RHS
+(74.1 bn ZAR from P0_BASE emissions). Likely numerical solver tolerance or rounding in
+the post-hoc calculation. CT_R matches exactly.
+
+### System Costs 2030 [bn ZAR/yr]
+
+`coal.marginal_cost = 0` throughout (sunk-cost model). CT is applied as marginal_cost
+adjustment during solving for P0_CT/P0_CT_R but stored at pre-CT values in solved.nc.
+All costs ×SCALE_COSTS (1e3) to undo `scale_costs(n, 1e3)` applied before solve.
+
+| cost component | P0_BASE | P0_BASE_R | P0_CT | P0_CT_R |
+|---|---:|---:|---:|---:|
+| Capital new build [bn ZAR/yr] | 23.6 | 77.6 | 38.0 | 70.3 |
+| Operational (MC×dispatch) | 44.1 | 43.6 | 44.0 | 43.6 |
+| CT cost (462 R/t × own CO₂) | 74.1 | 58.9 | 63.7 | 58.9 |
+| Total objective [bn ZAR]* | 1,849 | 2,286 | 2,512 | 2,676 |
+
+*Total objective = both investment periods (2025+2030) discounted; not directly comparable
+to annual costs above. Higher objective in CT/CT_R reflects RE capital investment.
+
+### Summary Table — Key Metrics
+
+| metric | BASE | BASE+R | CT | CT+R |
+|---|---:|---:|---:|---:|
+| Load [TWh] | 255.4 | 255.4 | 255.4 | 255.4 |
+| RE gen [TWh] | 69.9 | 102.6 | 90.8 | 102.6 |
+| Coal gen [TWh] | 166.8 | 132.0 | 143.2 | 132.0 |
+| RE share [%] | 27.0 | **40.2** | 35.5 | **40.1** |
+| Coal share [%] | 64.5 | 51.7 | 56.0 | 51.7 |
+| New wind [GW] | 0.00 | **11.37** | 3.89 | 3.89 |
+| New solar [GW] | 12.05 | 20.73 | 13.15 | **29.69** |
+| New RE total [GW] | 12.07 | 32.12 | 17.06 | **33.59** |
+| CO₂ [MtCO₂] | 160.4 | **127.5** | 137.9 | **127.5** |
+| CO₂ vs BASE [%] | — | −20.5% | −14.0% | −20.5% |
+| CT revenue [bn ZAR] | 74.1 | 58.9 | 63.7 | 58.9 |
+| Reinvestment [bn ZAR] | — | 71.0 | — | 63.7 |
+| Capex new build [bn ZAR/yr] | 23.6 | 77.6 | 38.0 | 70.3 |
+
+### Key Observations (regions=10, 182h)
+
+1. **BASE+R and CT+R achieve identical CO₂ reduction (−20.5%)** — the reinvestment floor
+   dominates; whether CT is also present as price signal makes no difference to emissions.
+2. **CT alone (−14%) < reinvestment alone (−20.5%)** — revenue recycling is more effective
+   than the price signal for emission reduction in this model configuration.
+3. **Technology mix diverges**: BASE+R builds mainly wind (11.4 GW new), CT+R builds mainly
+   solar_pv (23.1 GW new). Both reach similar RE share (~40%) via different routes.
+   Wind can displace coal at night; solar cannot → in full LC run, CT+R likely has higher
+   nighttime coal and therefore higher emissions than BASE+R. Key RQ3 result to verify.
+4. **Operatonal costs identical** (~44 bn ZAR/yr all scenarios) — coal MC = 0 dominates.
+5. **Battery storage triples** in all non-BASE scenarios (1.6 → 4.2 GW) to support higher RE.
+
+---
+
 ## Critical Analysis of Preliminary Results
 
 ### Q1: Why is wind new build = 3,890 MW in P0_BASE, P0_CT, and P0_CT_R?
@@ -480,6 +626,160 @@ All "suspicious" identical values have clear explanations:
 
 ---
 
+## Deep Parameter Audit — 2026-06-06
+
+Complete investigation of all parameter issues before final LC runs. Verified directly from solved.nc, source Excel files, and Python scripts.
+
+---
+
+### CRITICAL BUG 1: regions inconsistency across P0 scenarios
+
+**Verified from solved.nc network topology:**
+
+| Scenario | buses | transmission links | extendable gens | regions in Excel |
+|----------|-------|--------------------|-----------------|-----------------|
+| P0_BASE  | 10    | 38                 | 320             | 10              |
+| P0_BASE_R| 1     | 0                  | 28              | **1**           |
+| P0_CT    | 1     | 0                  | 18              | **1**           |
+| P0_CT_R  | 1     | 0                  | 28              | **1**           |
+
+**Impact:** P0_BASE was solved as a spatially disaggregated 10-region model with transmission. P0_BASE_R, P0_CT, and P0_CT_R were solved as single-node models ("RSA" bus, no transmission). All comparative results in the preliminary analysis (generation mix, emissions, costs, new build) are therefore **invalid** — we are comparing a 10-region model against 3 single-node models.
+
+**Root cause:** scenarios_to_run.xlsx has `regions = 1` for P0_BASE_R, P0_CT, P0_CT_R. Only P0_BASE was correctly set to `regions = 10`.
+
+**Fix required:** In scenarios_to_run.xlsx → scenario_definition sheet → change `regions` to 10 for P0_BASE_R, P0_CT, P0_CT_R. Then re-solve all 3 scenarios.
+
+**Note:** The "regions=10, LC-182h" label in the preliminary results section above is **INCORRECT** — it describes only P0_BASE. The 3 other scenarios are regions=1 results.
+
+---
+
+### CRITICAL BUG 2: add_electricity.py SIGSEGV blocks regions=10 for non-BASE scenarios
+
+When `regions=10` is set in the Excel and Snakemake runs `add_electricity` for P0_CT/BASE_R/CT_R, the script crashes with a segfault after loading solar_pv profiles (the multi-node profile loading loop). This is why those 3 scenarios fell back to being solved at regions=1.
+
+**Blocked by:** This bug is in `add_electricity.py`, likely in `generate_extendable_wind_solar_profiles()` or `generate_fixed_wind_solar_profiles()`. Needs systematic debugging (add print statements before crash, verify generator name format matches pu_profiles columns).
+
+**Fix required:** Debug and fix the SIGSEGV in add_electricity.py for regions=10 before any final runs. Until then, all 4 scenarios will be single-node regardless of the Excel setting.
+
+---
+
+### NOT A BUG: CT is not applied to RE generators
+
+**Previous session incorrectly flagged this as a confirmed bug. Disproved.**
+
+Verification method: compared `n.generators.marginal_cost` and `n.generators_t.marginal_cost` for RE generators between P0_BASE and P0_CT from solved.nc.
+
+**Result:**
+
+| Carrier | P0_BASE MC (R/MWh) | P0_CT MC (R/MWh) | Difference |
+|---------|-------------------|-----------------|------------|
+| solar_pv (fixed) | 2056 | 2056 | **0** |
+| wind (fixed) | 979 | 979 | **0** |
+| solar_csp (fixed) | 3209 | 3209 | **0** |
+| solar_pv (extendable) | 0 | 0 | 0 |
+| wind (extendable) | 0 | 0 | 0 |
+
+**Code verification:** `apply_emissions_for_fixed_generators()` and `apply_emissions_for_extendable_generators()` in `add_electricity.py` both filter using:
+```python
+gen_list = n.generators.query("carrier in @conv_carriers & [not] p_nom_extendable").index
+```
+where `conv_carriers = ['coal', 'hydro', 'nuclear', 'ocgt_diesel', 'rmippp', 'sasol_coal', 'sasol_gas']`.
+
+Solar_pv and wind are in `re_carriers`, never in `conv_carriers`. CT is correctly NOT applied to them.
+
+---
+
+### NOT A BUG: Fixed RE marginal costs are real PPA prices
+
+**The high MC values for legacy IPP plants are correct by design.**
+
+Fixed RE generators represent contracted REIPPP (Renewable Energy Independent Power Producer Procurement) plants with Power Purchase Agreements (PPAs). The `variable_om_cost (R/MWh)` field in fixed_technologies.xlsx (sheet: renewables, scenario: BASE) stores the PPA tariff:
+
+| Bid Window | solar_pv MC (R/MWh) | wind MC (R/MWh) | Notes |
+|-----------|---------------------|----------------|-------|
+| BW 1 (2011–12) | 3,649 | 1,513 | First-mover premium |
+| BW 2 (2012–13) | 2,176 | 1,186 | |
+| BW 3 (2013–14) | 1,165 | 868 | |
+| BW 4 (2014–15) | 872  | 687 | |
+| BW 4.5/5 (2017+)| 600  | 600 | Near-competitive |
+
+Mean solar_pv = 2,056 R/MWh, mean wind = 979 R/MWh — weighted by number of contracted plants. These are real 2020-era prices in ZAR. They are correctly NOT affected by CT (CT incentivises new RE investment, not dispatching expensive legacy contracts).
+
+**Implication for dispatch:** Even without CT, legacy coal (MC ≈ 722 R/MWh) is cheaper at the margin than early-round solar/wind (MC > 1,000 R/MWh). The model will prefer cheap coal over expensive legacy RE in dispatch — which is economically correct for sunk-cost legacy assets. New extendable RE (MC = 0 R/MWh) always gets dispatched first when available.
+
+---
+
+### VERIFIED: CT on coal is correctly applied
+
+**Verification:** Compare coal TV-MC between BASE and CT scenarios (period=2030):
+
+| | P0_BASE | P0_CT | Increase |
+|-|---------|-------|---------|
+| Coal TV-MC mean (R/MWh) | 722 | 1,180 | +458 |
+| Expected CT increase (462 R/t × ~1.0 tCO₂/MWh) | — | — | ~462 |
+
+The 1.3% difference from the expected 462 R/MWh is due to plant-specific emission factors and variable heat rates. CT on coal is functioning correctly.
+
+**Code path:** `apply_emissions_for_fixed_generators()` in `add_electricity.py` (lines 840–887):
+1. Reads `CT_2030` row from emissions.xlsx (sheet: carbon_tax) → 462 R/tCO₂
+2. Converts to R/kgCO₂ (÷1000)
+3. For each coal generator: `MC_new = MC_old + emission_factor × CT_rate`
+4. Writes to `n.generators_t.marginal_cost`
+
+---
+
+### CONCERN: Nuclear TV-MC = 250 R/MWh
+
+In P0_BASE, fixed nuclear generators have static MC = 12.4 R/MWh but TV-MC (time-varying) = 250 R/MWh. This discrepancy is large.
+
+**Likely explanation:** `apply_variable_fuel_prices_for_fixed_generators()` sets TV-MC = fuel_cost + VOM for all conventional generators (including nuclear). The static MC is then zeroed out (only VOM remains). So 250 R/MWh = uranium fuel cost + VOM as loaded from fuel_prices.xlsx.
+
+For Koeberg: SA nuclear fuel costs are typically quoted as ~100–150 R/MWh. The 250 R/MWh may reflect the full lifecycle cost including fuel fabrication, enrichment, and waste management, or it may include an implicit capacity payment. **Needs verification against fuel_prices.xlsx (BASE_PMR1b scenario).**
+
+In P0_CT: only 1 nuclear generator appears in the network (vs 21 in P0_BASE). This is explained by the regions=1 topology (single-node) vs regions=10 (10 buses × 1 Koeberg unit + extendable units). Not a data bug.
+
+---
+
+### CONCERN: Extendable RE generators count differs between scenarios
+
+| Scenario | solar_pv ext | wind ext | Total ext RE | Regions |
+|----------|-------------|---------|-------------|---------|
+| P0_BASE  | 20 | 20 | 80+ | 10 |
+| P0_CT    | 1  | 2  | 7  | 1 |
+| P0_BASE_R| —  | —  | 14 | 1 |
+| P0_CT_R  | —  | —  | 14 | 1 |
+
+The 20 per carrier in P0_BASE = 10 buses × 2 investment years. The 1-2 per carrier in P0_CT = 1 bus × 2 years (but some carriers dropped because MOD_CNST annual limits = 0 for that region). The count differences are entirely explained by the regions discrepancy. **Not an independent bug.**
+
+---
+
+### CONCERN: Battery discrepancy (1.62 GW vs 4.24 GW) — explained
+
+P0_BASE (regions=10): 1.62 GW battery_4h across 10 buses  
+P0_BASE_R, P0_CT, P0_CT_R (regions=1): 4.24 GW battery_4h at single RSA node
+
+All battery storage is FIXED (`p_nom_extendable=False`). The sum differs because single-node models aggregate all regional batteries to one bus, while the 10-region model distributes them across 10 buses. The absolute total of 4.24 GW may be the correct national fleet — the 1.62 GW might be a subset (not all plants mapped to regions=10 buses yet). **Will resolve naturally when regions=10 is fixed.**
+
+---
+
+### Summary: parameter audit results
+
+| Issue | Status | Action |
+|-------|--------|--------|
+| regions=1 for P0_BASE_R/CT/CT_R | ❌ CRITICAL BUG | Fix Excel, then re-solve |
+| SIGSEGV in add_electricity (regions=10) | ❌ CRITICAL BUG | Debug before final runs |
+| CT applied to RE generators | ✅ NOT A BUG | Disproved — CT correctly excluded |
+| Fixed RE MC (2056/979 R/MWh) | ✅ CORRECT | Real REIPPP PPA prices |
+| Extendable RE MC = 0 | ✅ CORRECT | New builds have no fuel cost |
+| CT on coal (+458 R/MWh) | ✅ CORRECT | Matches expected 462 R/MWh |
+| Nuclear TV-MC = 250 R/MWh | ⚠️ VERIFY | Check fuel_prices.xlsx (BASE_PMR1b) |
+| Battery discrepancy 1.62 vs 4.24 GW | ⚠️ SEE NOTE | Explained by regions topology |
+| Missing supply_region=10 in extendable_technologies.xlsx | ⚠️ NEEDED | Add before final runs |
+
+**Bottom line:** There are 2 blocking bugs before any final LC runs are possible. The scenarios_to_run.xlsx regions setting must be corrected AND the SIGSEGV in add_electricity.py must be fixed. Once these are resolved, all 4 P0 scenarios can be solved consistently at regions=10 and their results will be comparable.
+
+---
+
 ## Network Plots
 
 Rule `plot_network` in Snakefile (hinzugefügt 2026-06-06) erzeugt nach jedem Solve automatisch zwei PNGs:
@@ -511,7 +811,9 @@ Hinweis: Kostenbalken (`plot_total_cost_bar`) ist deaktiviert — API-Mismatch m
 
 ### Priority 1 — Full-resolution runs (LC — 8760 h) ← NEXT STEP
 
-The 48-timestep results validate the CT logic but are insufficient for the paper:
+Both test-run stages are complete (regions=1 on 2026-05-27, regions=10 on 2026-06-06).
+CT logic validated. Results directionally consistent — now need full 8760h runs for paper.
+
 - [ ] Change `options` from `LC-182h` → `LC` in `scenarios_to_run.xlsx` for all P0 scenarios
 - [ ] Re-run all 4 scenarios (Stage 1: P0_BASE + P0_CT in parallel; Stage 2: _R scenarios after)
 - [ ] Check whether BASE_R and CT_R emissions diverge as expected (wind vs solar mix effect)

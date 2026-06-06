@@ -332,6 +332,13 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
     fc = group_carriers(fc_raw.sum(axis=1).drop(index=drop, errors="ignore"))
     vc = group_carriers(vc_raw.sum(axis=1).drop(index=drop, errors="ignore"))
 
+    # Model stores costs in R/kW (capital) and R/kWh (marginal) instead of PyPSA's
+    # expected R/MW and R/MWh — multiply by 1000 to get correct ZAR values for display.
+    # CO2 bar is unaffected (calculated from physical kgCO2/MWh × R/tCO2 units).
+    fc = fc * 1000
+    vc = vc * 1000
+    grid_fc = grid_fc * 1000
+
     from _helpers import get_as_dense
     load_p = get_as_dense(n, "Load", "p_set", n.snapshots).sum(axis=1)
     total_load = (n.snapshot_weightings.generators * load_p).sum()
@@ -339,10 +346,14 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
     print(f"[cost bar] total_load={total_load/1e6:.1f} TWh, "
           f"FC={fc.sum()/1e9:.2f} bn ZAR, VC={vc.sum()/1e9:.2f} bn ZAR, "
           f"Grid={grid_fc/1e9:.2f} bn ZAR")
-    print(f"[cost bar] FC by carrier [R/MWh]:\n"
-          + "\n".join(f"  {c}: {fc.get(c,0)/total_load:.1f}" for c in fc.index if fc.get(c,0)>0))
-    print(f"[cost bar] VC by carrier [R/MWh]:\n"
-          + "\n".join(f"  {c}: {vc.get(c,0)/total_load:.1f}" for c in vc.index if vc.get(c,0)>0))
+    fc_pmwh = fc / total_load
+    vc_pmwh = vc / total_load
+    print("[cost bar] FC by carrier [R/MWh]:")
+    for c, v in fc_pmwh[fc_pmwh > 0].items():
+        print(f"  {c}: {v:.1f}")
+    print("[cost bar] VC by carrier [R/MWh]:")
+    for c, v in vc_pmwh[vc_pmwh > 0].items():
+        print(f"  {c}: {v:.1f}")
 
     all_carriers = fc.index.union(vc.index)
     present = [c for c in all_carriers if c in tech_colors
