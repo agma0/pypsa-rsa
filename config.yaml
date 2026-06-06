@@ -243,7 +243,7 @@ solver:
 plotting:
   map:
     figsize: [7, 6]
-    boundaries: [16, -35, 33, -22]
+    boundaries: [14, 34, -35, -22]  # [lon_min, lon_max, lat_min, lat_max]
     p_nom:
       linewidth_factor: 2000.0
       bus_size_factor: 80000.0

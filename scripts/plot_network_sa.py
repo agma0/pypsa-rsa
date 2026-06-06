@@ -26,8 +26,6 @@ import geopandas as gpd
 from _helpers import (
     aggregate_costs,
     aggregate_p,
-    configure_logging,
-    load_network_for_plots,
 )
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import Circle, Ellipse
@@ -98,7 +96,7 @@ def set_plot_style():
     )
 
 
-def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_regions_path=None):
+def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_regions_path=None, resarea_path=None):
     if ax is None:
         ax = plt.gca()
 
@@ -142,6 +140,11 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     if supply_regions_path is not None:
         supply_regions = gpd.read_file(supply_regions_path)
         supply_regions.plot(ax=ax, facecolor='none', edgecolor='black')
+    if resarea_path is not None:
+        resarea = gpd.read_file(resarea_path)
+        resarea.plot(ax=ax, facecolor='gray', alpha=0.2)
+    if boundaries is not None:
+        ax.set_extent(boundaries, crs=ccrs.PlateCarree())
 
     ## PLOT
     n.plot(
@@ -289,22 +292,22 @@ def plot_total_energy_pie(n, opts, ax=None):
     ax.set_title("Total Generation \nper Technology", fontdict=dict(fontsize="medium"))
 
     e_primary = aggregate_p(n).drop("load", errors="ignore").loc[lambda s: s > 0]
+    # keep only carriers with a defined color
+    e_primary = e_primary[e_primary.index.isin(opts["tech_colors"])]
 
     patches, texts, autotexts = ax.pie(
         e_primary,
         startangle=110,
-        # labels=e_primary.rename(opts["nice_names"]).index,
+        labels=e_primary.rename(opts["nice_names"]).index,
         autopct="%.0f%%",
         shadow=False,
         colors=[opts["tech_colors"][tech] for tech in e_primary.index],
     )
     for autotext in autotexts:
         x, y = autotext.get_position()
-        distance_from_center = (x ** 2 + y ** 2) ** 0.5  # Calculate distance from center
-        new_x = x / distance_from_center * 1.15  # Increase distance by 15% as an example
-        new_y = y / distance_from_center * 1.15  # Increase distance by 15% as an example
-        autotext.set_position((new_x, new_y))
-        autotext.set_fontsize(9)  # Adjust the size as needed
+        dist = (x ** 2 + y ** 2) ** 0.5
+        autotext.set_position((x / dist * 1.15, y / dist * 1.15))
+        autotext.set_fontsize(9)
 
     for t1, t2, i in zip(texts, autotexts, e_primary.index):
         if e_primary.at[i] < 0.04 * e_primary.sum():
@@ -318,207 +321,46 @@ def plot_total_cost_bar(n, opts, ax=None):
     if ax is None:
         ax = plt.gca()
 
-    total_load = (n.snapshot_weightings.generators * n.loads_t.p.sum(axis=1)).sum()
     tech_colors = opts["tech_colors"]
+    nice_names = opts["nice_names"]
 
-    def split_costs(n):
-        costs = aggregate_costs(n).reset_index(level=0, drop=True)
-        costs_ex = aggregate_costs(n, existing_only=True).reset_index(
-            level=0, drop=True
-        )
-        return (
-            costs["capital"].add(costs["marginal"], fill_value=0.0),
-            costs_ex["capital"],
-            costs["capital"] - costs_ex["capital"],
-            costs["marginal"],
-        )
+    fixed_cost, variable_cost = aggregate_costs(n)
 
-    costs, costs_cap_ex, costs_cap_new, costs_marg = split_costs(n)
+    # sum over duplicate component rows and all investment periods
+    fc = fixed_cost.groupby(level=0).sum().sum(axis=1)
+    vc = variable_cost.groupby(level=0).sum().sum(axis=1)
 
-    # For Third Bar: Create a deep copy of n and adjust it for emission prices.
-    n_copy = copy.deepcopy(n)
-    emission_prices = snakemake.config['costs']['emission_prices']
-    ep = (pd.Series(emission_prices).rename(lambda x: x + '_emissions') * n_copy.carriers).sum(axis=1)
+    total_load = (n.snapshot_weightings.generators * n.loads_t.p_set.sum(axis=1)).sum()
 
-    # Adjusting the marginal costs
-    gen_ep = n_copy.generators.carrier.map(ep) / n_copy.generators.efficiency
-    su_ep = n_copy.storage_units.carrier.map(ep) / n_copy.storage_units.efficiency_dispatch
+    all_carriers = fc.index.union(vc.index)
+    carriers = [
+        c for c in all_carriers
+        if c in tech_colors
+        and c not in ("load", "load_shedding", "AC transformer")
+        and (fc.get(c, 0.0) + vc.get(c, 0.0)) > 0
+    ]
 
-    if 'Ep' not in scenario_opts:
-        # If 'Ep' is NOT in scenario_opts, add the emission prices to the marginal costs
-        n_copy.generators['marginal_cost'] += gen_ep.fillna(0)
-        n_copy.storage_units['marginal_cost'] += su_ep.fillna(0)
-    else:
-        # If 'Ep' IS in scenario_opts, subtract the emission prices from the marginal costs
-        n_copy.generators['marginal_cost'] -= gen_ep.fillna(0)
-        n_copy.storage_units['marginal_cost'] -= su_ep.fillna(0)
+    bottom_cap = 0.0
+    bottom_marg = 0.0
+    for c in carriers:
+        cap = fc.get(c, 0.0) / total_load
+        marg = vc.get(c, 0.0) / total_load
+        ax.bar([0.3], [cap],  bottom=bottom_cap,  color=tech_colors[c], width=0.35, zorder=-1)
+        ax.bar([0.7], [marg], bottom=bottom_marg, color=tech_colors[c], width=0.35, zorder=-1)
+        if cap > 30:
+            ax.text(0.3, bottom_cap + 0.5 * cap, nice_names.get(c, c),
+                    ha="center", va="center", fontsize=7, color="white")
+        if marg > 30:
+            ax.text(0.7, bottom_marg + 0.5 * marg, nice_names.get(c, c),
+                    ha="center", va="center", fontsize=7, color="white")
+        bottom_cap  += cap
+        bottom_marg += marg
 
-    # Extract costs for third bar using the adjusted copy
-    costs_ep, costs_cap_ex_ep, costs_cap_new_ep, costs_marg_ep = split_costs(n_copy)
-
-    print(costs_marg)
-    print(costs_marg_ep)
-
-    costs_graph1 = pd.DataFrame(
-        dict(a=costs.drop("load", errors="ignore")),
-        index=[
-            "AC-AC",
-            "AC line",
-        ],
-    ).dropna()
-    bottom = np.array([0.0, 0.0])
-    texts = []
-
-    for i, ind in enumerate(costs_graph1.index):
-        data = np.asarray(costs_graph1.loc[ind]) / 1e9 / 17.673  # USD #/ total_load
-        ax.bar([0.5], data, bottom=bottom, color=tech_colors[ind], width=0.7, zorder=-1)
-        bottom_sub = bottom
-        bottom = bottom + data
-
-        if ind in opts["conv_techs"] + ["AC line"]:
-            for c in [costs_cap_ex, costs_marg]:
-                if ind in c:
-                    data_ac = np.asarray([c.loc[ind]]) / 1e9 / 17.673  # USD#/ total_load
-                    ax.bar(
-                        [0.5],
-                        data_ac,
-                        linewidth=0.1,
-                        edgecolor='black',
-                        bottom=bottom_sub,
-                        color='darkkhaki',
-                        width=0.7,
-                        zorder=-1,
-                        alpha=0.8,
-                    )
-                    bottom_sub += data_ac
-
-        if abs(data[-1]) < 5:
-            continue
-
-        # text = ax.text(
-        #    0.5, (bottom + 0.08 * data)[-1] - 3, opts["nice_names"].get(ind, ind), ha='center'
-        # )
-        # texts.append(text)
-
-    costs_graph2 = pd.DataFrame(
-        dict(a=costs_ep.drop("load", errors="ignore")),
-        index=[
-            "coal",
-            "nuclear",
-            "OCGT",
-            "CCGT",
-            "gas",
-            # "AC-AC",
-            # "AC line",
-            "onwind",
-            "CSP",
-            "solar",
-            "hydro",
-            "hydro-import",
-            "battery",
-            # "H2",
-        ],
-    ).dropna()
-    bottom = np.array([0.0, 0.0])
-    texts = []
-
-    for i, ind in enumerate(costs_graph2.index):
-        data = np.asarray(costs_graph2.loc[ind]) / 1e9 / 17.673  # USD 2022 #/ total_load
-        ax.bar([1.5], data, bottom=bottom, color=tech_colors[ind], width=0.7,
-               zorder=-1)  # change for scenario 3 in from 1.5 to 2.5
-        bottom_sub = bottom
-        bottom = bottom + data
-
-        if ind in opts["conv_techs"] + ["AC line"]:
-            for c in [costs_cap_ex_ep, costs_marg_ep]:
-                if ind in c:
-                    data_sub = np.asarray([c.loc[ind]]) / 1e9 / 17.673  # USD #/ total_load
-                    ax.bar(
-                        [1.5],
-                        data_sub,
-                        linewidth=0,
-                        edgecolor='black',
-                        bottom=bottom_sub,
-                        color=tech_colors[ind],
-                        width=0.7,
-                        zorder=-1,
-                        alpha=0.8,
-                    )
-                    bottom_sub += data_sub
-
-        if abs(data[-1]) < 0.25:
-            continue
-
-        # Adjust the y position based on half the height of the data bar
-        y_position = (bottom - 0.5 * data)[-1]
-
-        # Check if it's the first carrier and adjust the y position accordingly
-        if i == 0:
-            y_position = (0.5 * data)[-1]
-
-    ### legend
-    # text = ax.text(
-    #    3.2, y_position, opts["nice_names"].get(ind, ind)
-    # )
-    # texts.append(text)
-
-    #################
-
-    # Third Bar: With Emissions Prices
-    # apply the emission costs to the marginal costs
-
-    # Create a dataframe for plotting, ignoring the 'load' costs.
-    costs_graph3 = pd.DataFrame(
-        dict(a=costs.drop("load", errors="ignore")), #delete ep in third scenario
-        index=[
-            "coal", "nuclear", "OCGT", "CCGT", "gas", "onwind", "CSP", "solar", "hydro", "hydro-import", "battery"
-        ],
-    ).dropna()
-
-    bottom = np.array([0.0, 0.0])
-    texts = []
-
-    # Loop through each technology
-    for i, ind in enumerate(costs_graph3.index):
-        data = np.asarray(costs_graph3.loc[ind]) / 1e9 / 17.673
-        ax.bar([2.5], data, bottom=bottom, color=tech_colors[ind], width=0.7, zorder=-1)
-        bottom_sub = bottom
-        bottom = bottom + data
-
-        # Plot additional cost components for some technologies
-        if ind in opts["conv_techs"] + ["AC line"]:
-            for c in [costs_cap_ex, costs_marg]: #delete ep in third scenario
-                if ind in c:
-                    data_sub = np.asarray([c.loc[ind]]) / 1e9 / 17.673
-                    ax.bar(
-                        [2.5],
-                        data_sub,
-                        linewidth=0,
-                        edgecolor='black',
-                        bottom=bottom_sub,
-                        color=tech_colors[ind],
-                        width=0.7,
-                        zorder=-1,
-                        alpha=0.8,
-                    )
-                    bottom_sub += data_sub
-
-        # Skip very small bars for clarity
-        if abs(data[-1]) < 0.25:
-            continue
-
-        # Adjust y-position for label
-        y_position = (bottom - 0.5 * data)[-1]
-        if i == 0:
-            y_position = (0.5 * data)[-1]
-
-    ###################
-
-    ax.set_ylabel("Average system cost [billion USD/year]")
-    ax.set_ylim([0, 16])
-    ax.set_xlim([0, 3])  # <-- Adjusted xlim
-    ax.set_xticks([0.5, 1.5, 2.5])  # Set positions of the tick marks
-    ax.set_xticklabels(["AC\nline", "wo\nep", "w\nep"], fontsize=10)
+    ax.set_ylabel("Avg system cost [R/MWh]")
+    ax.set_xlim([0, 1])
+    ax.set_xticks([0.3, 0.7])
+    ax.set_xticklabels(["Capital", "Marginal"], fontsize=9)
+    ax.set_title("System Cost", fontdict=dict(fontsize="medium"))
     ax.grid(True, axis="y", color="k", linestyle="dotted")
 
 
@@ -549,11 +391,28 @@ if __name__ == "__main__":
         n, config["plotting"], ax=ax, attribute="p_nom",
         boundaries=map_boundaries,
         supply_regions_path=snakemake.input.supply_regions,
+        resarea_path=snakemake.input.resarea,
     )
 
     fig.savefig(snakemake.output.only_map, dpi=150, bbox_inches="tight")
 
+    # CO2 emissions across all periods
+    if "co2_emissions" in n.carriers.columns:
+        co2_emi = (
+            n.generators_t.p
+            .multiply(n.snapshot_weightings.generators, axis=0)
+            .sum()
+            .div(n.generators.efficiency.replace(0, np.nan))
+            .mul(n.generators.carrier.map(n.carriers.co2_emissions).fillna(0))
+            .sum()
+        )
+        fig.text(0.18, 0.13, f"CO₂: {int(np.round(co2_emi/1e6))} MtCO₂/a",
+                 fontsize=9)
+
     ax1 = fig.add_axes([-0.115, 0.5, 0.2, 0.2])
     plot_total_energy_pie(n, config["plotting"], ax=ax1)
+
+    ax2 = fig.add_axes([-0.115, 0.15, 0.18, 0.30])
+    plot_total_cost_bar(n, config["plotting"], ax=ax2)
 
     fig.savefig(snakemake.output.ext, transparent=True, bbox_inches='tight')

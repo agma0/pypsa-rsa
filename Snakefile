@@ -82,7 +82,8 @@ rule plot_all_scenarios:
 rule plot_network:
     input:
         network = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/networks/solved.nc",
-        supply_regions = "data/Shapefiles/Supply_Areas2022_Steady_State_Limit.shp",
+        supply_regions = "data/Shapefiles/11-supply.shp",
+        resarea = "data/bundle/REDZ_DEA_Unpublished_Draft_2015/REDZ_DEA_Unpublished_Draft_2015.shp",
     output:
         only_map = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_only.png",
         ext = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_full.png",

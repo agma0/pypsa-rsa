@@ -404,7 +404,7 @@ def aggregate_costs(n):
         if c.df.empty:
             continue
     
-        if n._multi_invest:
+        if len(n.investment_periods) > 0:
             active = pd.concat(
                 {
                     period: get_active_assets(n, c.name, period)
@@ -412,6 +412,8 @@ def aggregate_costs(n):
                 },
                 axis=1,
             )
+        else:
+            active = pd.DataFrame(True, index=c.df.index, columns=[None])
         if c.name not in ["Line", "Transformer"]: 
             marginal_costs = (
                     get_as_dense(n, c.name, "marginal_cost", n.snapshots)
