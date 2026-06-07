@@ -18,6 +18,11 @@ while true; do
 done &
 LOOP_PID=$!
 
-pixi run snakemake solve_all -j 4 -F --resources solver_slots=2
+MAMBA_EXE='/beegfs/home/users/a/agma/.pixi/envs/micromamba/bin/micromamba'
+MAMBA_ROOT='/beegfs/home/users/a/agma/.local/share/mamba'
+PYPSA_ENV='/beegfs/home/users/a/agma/.pixi/envs/pypsa-rsa'
+
+$MAMBA_EXE run --root-prefix $MAMBA_ROOT -p $PYPSA_ENV \
+    snakemake solve_all -j 4 -F --resources solver_slots=2
 
 kill $LOOP_PID 2>/dev/null

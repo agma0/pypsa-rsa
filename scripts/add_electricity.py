@@ -207,6 +207,67 @@ def annualise_costs(investment, lifetime, discount_rate, FOM):
     CRF = discount_rate / (1 - 1 / (1 + discount_rate) ** lifetime)
     return (investment * CRF + FOM).fillna(0)
 
+def load_costs(model_file, cost_scenario, config, elec_config, config_years):
+    """Load annualised technology costs from a costs xlsx (old pypsa-za format).
+
+    Sheet 'costs' with MultiIndex [scenario, technology, parameter] and year columns.
+    Used only by load_network_for_plots in _helpers.py — not part of the main pipeline.
+    """
+    cost_data = (
+        pd.read_excel(model_file, sheet_name="costs", index_col=[0, 1, 2])
+        .sort_index()
+        .loc[cost_scenario]
+    )
+    cost_data.drop("source", axis=1, errors="ignore", inplace=True)
+    cost_data.loc[cost_data["unit"].str.contains("/kW", na=False), config_years] *= 1e3
+    cost_data.loc[cost_data["unit"].str.contains("USD", na=False), config_years] *= config["USD_to_ZAR"]
+    cost_data.loc[cost_data["unit"].str.contains("EUR", na=False), config_years] *= config["EUR_to_ZAR"]
+    cost_data.loc[cost_data["unit"].str.contains("R/GJ", na=False), config_years] *= 3.6
+    fom_perc_idx = cost_data[cost_data["unit"].str.contains("%/year", na=False)].index.get_level_values(0)
+    costs = {}
+    for y in config_years:
+        yr = cost_data[y].unstack(level=1).fillna(
+            {"investment": 0, "lifetime": 25, "FOM": 0,
+             "discount rate": config.get("discountrate", 0.092)}
+        )
+        yr.loc[fom_perc_idx, "FOM"] *= yr.loc[fom_perc_idx, "investment"] / 100.0
+        r = yr["discount rate"]
+        CRF = r / (1 - 1 / (1 + r) ** yr["lifetime"])
+        yr["capital_cost"] = yr["investment"] * CRF + yr["FOM"]
+        costs[y] = yr
+    return costs
+
+
+def update_transmission_costs(n, costs=None):
+    """Set capital_cost on extendable links (existing corridors, no new build).
+
+    Uses HVAC overhead parameters from config.yaml lines.hvac_overhead.
+    If a costs dict is passed (old pypsa-za format, keyed by year), uses that instead —
+    for compatibility with load_network_for_plots in _helpers.py.
+    """
+    ext_links = n.links[n.links.p_nom_extendable].index
+    if ext_links.empty:
+        return
+    line_config = snakemake.config["lines"]
+    length_factor = line_config.get("length_factor", 1.25)
+    if costs is not None:
+        y = n.investment_periods[0] if len(n.investment_periods) > 0 else list(costs.keys())[0]
+        capital_cost_per_mw_km = costs[y].at["HVAC overhead", "capital_cost"]
+    else:
+        hvac = line_config["hvac_overhead"]
+        r = float(SCENARIO_SETUP["global_discount_rate"])
+        n_yrs = int(hvac["lifetime"])
+        CRF = r / (1 - 1 / (1 + r) ** n_yrs)
+        capital_cost_per_mw_km = hvac["investment"] * (CRF + hvac["fom_rate"])
+    n.links.loc[ext_links, "capital_cost"] = (
+        n.links.loc[ext_links, "length"] * length_factor * capital_cost_per_mw_km
+    )
+    logging.info(
+        f"Transmission capital cost: {capital_cost_per_mw_km:.1f} ZAR/MW/km "
+        f"x length x length_factor={length_factor}"
+    )
+
+
 def load_extendable_parameters(n, SCENARIO_SETUP, snakemake):
     """
     set all asset costs tab in the model file
@@ -1665,6 +1726,11 @@ if __name__ == "__main__":
 
     logging.info(f"Loading base network {snakemake.input.base_network}")
     n = pypsa.Network(snakemake.input.base_network)
+
+    line_expansion = str(SCENARIO_SETUP.get("line_expansion", "none")).strip().lower()
+    if len(n.buses) > 1 and line_expansion not in ("none", "0", "false", "nan"):
+        logging.info("Setting transmission expansion costs")
+        update_transmission_costs(n)
 
     logging.info("Attaching load")
     attach_load(n, SCENARIO_SETUP)

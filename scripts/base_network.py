@@ -144,19 +144,23 @@ def add_components_to_network(n, buses, lines, line_config):
 #   Only a transfer model is used, with allowable efficiency losses
 #   This requires two uni-directional links between nodes as PyPSA efficiency is not bi-directional
     if len(buses) != 1:
+        line_expansion = str(SCENARIO_SETUP.get("line_expansion", "none")).strip().lower()
+        expandable = line_expansion not in ("none", "0", "false", "nan")
         pu_max = line_derating(n, lines)
         n.madd(
             "Link",
             lines.index,
             p_nom = lines["St_Clair_limit_n1"],
+            p_nom_min = lines["St_Clair_limit_n1"] if expandable else 0,
             bus0 = lines["bus0"],
             bus1 = lines["bus1"],
+            length = lines["length"],
             efficiency = 1-line_config["losses"]*lines["length"]/1000,
             p_max_pu = pu_max,
             p_min_pu = 0, # single direction 2 links represent 1 line
             lifetime = 100,
             build_year = n.investment_periods[0]-1,
-            p_nom_extendable = False,
+            p_nom_extendable = expandable,
         )
         
 def get_years():

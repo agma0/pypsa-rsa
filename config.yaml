@@ -165,6 +165,10 @@ lines:
   length_factor: 1.25
   no_build_year: 2050 # or set as "drop" to remove lines
   losses: 0.06 #per 1000km AC line - requires to links per line unless set to 0 then bi-directional lossless link
+  hvac_overhead:        # costs for transmission expansion (existing corridors only)
+    investment: 6000    # ZAR/MW/km overnight investment
+    lifetime: 40        # years
+    fom_rate: 0.02      # fraction of investment cost per year
   dc_type: "DC_custom_linetype"
 
 links:
