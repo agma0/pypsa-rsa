@@ -397,7 +397,21 @@ def add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake):
         f"{emissions_t/1e6:.2f} MtCO2 × {ct_rate} R/t = {ct_revenues/1e9:.2f} bn ZAR"
     )
 
-    # Step 4: extendable RE generators built in 2030
+    # Step 3.5: baseline RE investment from reference scenario (already in scaled kZAR/MW,
+    # because capital_cost is stored post-scale_costs in the solved .nc)
+    base_re_gens = n_base.generators.query(
+        "carrier in @reinvest_carriers and build_year == 2030 and p_nom_extendable"
+    )
+    base_re_investment = (base_re_gens.p_nom_opt * base_re_gens.capital_cost).sum()  # kZAR/yr
+
+    logger.info(
+        f"CT reinvestment [{SCENARIO_SETUP.name}]: "
+        f"base RE investment = {base_re_investment/1e6:.2f} bn kZAR/yr, "
+        f"CT revenues = {ct_revenues/1e9:.2f} bn ZAR → "
+        f"total RHS = {(base_re_investment + ct_revenues/1e3)/1e6:.2f} bn kZAR/yr"
+    )
+
+    # Step 4: extendable RE generators in the _R scenario
     add_gens = n.generators.query(
         "carrier in @reinvest_carriers and build_year == 2030 and p_nom_extendable"
     )
@@ -410,11 +424,9 @@ def add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake):
         return
 
     # Step 5: linopy constraint
-    # capital_cost [R/MW] has been divided by 1e3 via scale_costs → scale RHS equally
+    # RHS = baseline RE investment (from reference) + CT revenues — both in scaled kZAR
+    # capital_cost already divided by 1e3 via scale_costs; ct_revenues scaled equally
     p_nom = n.model.variables["Generator-p_nom"].sel({"Generator-ext": add_gens.index})
-    # AM adjusted: add_gens.index has name='Generator' but dim must be 'Generator-ext'
-    # — pass dims explicitly and use .values to strip the pandas index name
-    #costs = xr.DataArray(add_gens["capital_cost"].values, coords={"Generator-ext": add_gens.index})  # AM adjusted: dim mismatch
     costs = xr.DataArray(
         add_gens["capital_cost"].values,
         dims=["Generator-ext"],
@@ -422,13 +434,15 @@ def add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake):
     )
     lhs = (p_nom * costs).sum("Generator-ext")
 
-    ct_revenues_scaled = ct_revenues / 1e3  # match scale_costs(n, 1e3) applied earlier
+    # on top of baseline: total RE investment >= base_investment + CT_revenues
+    rhs = base_re_investment + ct_revenues / 1e3
 
-    n.model.add_constraints(lhs >= ct_revenues_scaled, name="ct_reinvestment")
+    n.model.add_constraints(lhs >= rhs, name="ct_reinvestment")
 
     logger.info(
         f"CT reinvestment constraint added: "
-        f"annualised RE investment >= {ct_revenues/1e9:.2f} bn ZAR "
+        f"annualised RE investment >= base {base_re_investment/1e6:.2f} + "
+        f"CT {ct_revenues/1e9:.2f} bn ZAR "
         f"({len(add_gens)} extendable RE generators)"
     )
 # AM added -----------------------------------------------------------------------

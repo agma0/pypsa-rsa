@@ -253,16 +253,16 @@ plotting:
       linewidth_factor: 2000.0
       bus_size_factor: 80000.0
   tech_colors:
-    coal: '#545454'
-    nuclear: '#ff8c00'
+    coal: '#333333'
+    nuclear: '#cc0000'
     solar_pv: '#ffde08'
     solar_pv_low: '#f4c430'
     solar_pv_rooftop: '#ffd700'
-    solar_csp: '#ff7700'
+    solar_csp: '#ff8000'
     wind: '#235ebc'
     wind_low: '#3a7bbf'
-    ocgt: '#d35050'       # grouped: all OCGT variants
-    ocgt_gas: '#d35050'
+    ocgt: '#bbbbbb'       # grouped: all OCGT variants
+    ocgt_gas: '#bbbbbb'
     ocgt_gas_h2_40: '#c84848'
     ocgt_gas_h2_45: '#be4040'
     ocgt_gas_h2_50: '#b43838'
@@ -270,14 +270,14 @@ plotting:
     ocgt_gas_h2_60: '#a02828'
     ocgt_diesel: '#c8a000'
     ocgt_blend: '#b09000'
-    ccgt_steam: '#e05a00'
+    ccgt_steam: '#999999'
     phs: '#298c81'
     battery: '#ace37f'    # grouped: all battery variants
     battery_1h: '#ace37f'
     battery_4h: '#7ac677'
     battery_8h: '#5aab66'
-    hydro: '#298c81'
-    hydro+PHS: '#298c81'
+    hydro: '#9055aa'
+    hydro+PHS: '#9055aa'
     biomass_MSW: '#166a57'
     biomass_biogas: '#11684f'
     biomass_forestry: '#0c6647'
@@ -286,9 +286,9 @@ plotting:
     load_shedding: '#ff0000'
     AC line: '#6c9459'
     AC-AC: '#6c9459'
-    gas: '#d35050'
+    gas: '#bbbbbb'
     bioenergy: '#166a57'
-    hydro_import: '#298c81'
+    hydro_import: '#9055aa'
     rmippp: '#a0522d'
     sasol_coal: '#3d3d3d'
     sasol_gas: '#c06000'
@@ -305,8 +305,8 @@ plotting:
     wind: Wind
     wind_low: "Wind (low)"
     ocgt: "OCGT"
-    ocgt_gas: "Gas OCGT"
-    ccgt_steam: "Gas CCGT"
+    ocgt_gas: "OCGT"
+    ccgt_steam: "CCGT"
     ocgt_diesel: Diesel
     ocgt_blend: "Blend OCGT"
     phs: PHS

@@ -60,7 +60,7 @@ CARRIER_DROP = {'hydro_import'}
 
 # Display order: fossils → renewables → storage
 CARRIER_ORDER = [
-    'coal', 'nuclear', 'ccgt_steam', 'ocgt',
+    'coal', 'ccgt_steam', 'ocgt', 'nuclear',
     'bioenergy', 'hydro', 'wind', 'solar_pv', 'solar_csp',
     'phs', 'battery',
 ]
@@ -213,8 +213,8 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     for c in ax.collections[:2]:
         c.set_rasterized(True)
 
-    # LEGEND — Capacity (left) + Netz (right), 2×2 side by side
-    # Capacity: 2 circles
+    # LEGEND — three side-by-side boxes, all at y=1.01 to avoid clipping
+    # 1) Capacity circles
     cap_handles = make_legend_circles_for(
         [10e3, 1e3], scale=bus_size_factor, facecolor="w"
     )
@@ -223,7 +223,7 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
         cap_handles,
         cap_labels,
         loc="upper left",
-        bbox_to_anchor=(0.01, 1.07),
+        bbox_to_anchor=(0.07, 1.01),
         frameon=False,
         labelspacing=0.8,
         fontsize=7,
@@ -233,7 +233,27 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     )
     ax.add_artist(l2)
 
-    # Netz: expanded + existing (one representative line each)
+    # 2) Transmission line-width scale (10 GW = thick, 1 GW = thin)
+    trans_handles = [
+        plt.Line2D([0], [0], color=color_cur, linewidth=s * 1e3 / linewidth_factor)
+        for s in (10, 1)
+    ]
+    trans_labels = ["10 GW", "1 GW"]
+    l_width = ax.legend(
+        trans_handles,
+        trans_labels,
+        loc="upper left",
+        bbox_to_anchor=(0.26, 1.01),
+        frameon=False,
+        labelspacing=0.8,
+        handletextpad=1.5,
+        fontsize=7,
+        title="Transmission",
+        title_fontsize=7,
+    )
+    ax.add_artist(l_width)
+
+    # 3) Netz: expanded (dark) vs existing (light)
     net_handles = [
         plt.Line2D([0], [0], color=color_exp, linewidth=3),
         plt.Line2D([0], [0], color=color_cur, linewidth=3),
@@ -243,11 +263,11 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
         net_handles,
         net_labels,
         loc="upper left",
-        bbox_to_anchor=(0.28, 1.07),
+        bbox_to_anchor=(0.46, 1.01),
         frameon=False,
         labelspacing=0.8,
         fontsize=7,
-        title="Netz",
+        title="Grid",
         title_fontsize=7,
     )
     ax.add_artist(l1_1)
@@ -312,7 +332,7 @@ def plot_total_energy_pie(n, opts, ax=None):
 
 #############
 
-def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
+def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions=None):
     if ax is None:
         ax = plt.gca()
 
@@ -382,6 +402,7 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
         bottom_marg += marg
 
     # Bar 3: CO2 cost by carrier [R/MWh]
+    co2_cost_bn = None
     if gen_emissions_df is not None:
         ct_rate = opts.get("carbon_tax_rate_2030", 462)
         energy_all = (
@@ -404,7 +425,8 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
         co2_by_carrier = co2_cost_total[
             (~co2_cost_total.index.isin(CARRIER_DROP)) & (co2_cost_total > 0)
         ] / total_load
-        print(f"[cost bar] CO2 total={co2_by_carrier.sum():.1f} R/MWh")
+        co2_cost_bn = co2_by_carrier.sum() * total_load / 1e9
+        print(f"[cost bar] CO2 total={co2_by_carrier.sum():.1f} R/MWh  ({co2_cost_bn:.1f} bn ZAR)")
         bottom_co2 = 0.0
         for c in CARRIER_ORDER:
             if c not in co2_by_carrier.index:
@@ -434,14 +456,23 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None):
     ax.set_title("System Cost", fontdict=dict(fontsize="medium"))
     ax.grid(True, axis="y", color="k", linestyle="dotted")
 
-    # Cost summary text below bars — plain text, no box, values from already-computed fc/vc
+    # Cost summary text below bars
     fc_total = sum(fc.get(c, 0.0) for c in carriers)
     vc_total = sum(vc.get(c, 0.0) for c in carriers)
     total_all = fc_total + vc_total + grid_fc
+    em_str = f"{total_emissions:.1f} MtCO₂/a" if total_emissions is not None else "n/a"
+    ct_str = f"{co2_cost_bn:.0f} bn ZAR" if co2_cost_bn is not None else "n/a"
+    line1 = f"Total Emissions: {em_str}    |    Total Costs: {total_all/1e9:.0f} bn ZAR/a"
+    line2 = (f"Capital Costs: {fc_total/1e9:.0f}    |    Marginal Costs: {vc_total/1e9:.0f}"
+             f"    |    Carbon Tax: {ct_str}    [bn ZAR/a]")
     ax.text(
-        0.5, -0.38,
-        f"Capital {fc_total/1e9:.0f}  Marginal {vc_total/1e9:.0f}  "
-        f"Grid {grid_fc/1e9:.0f}  Total {total_all/1e9:.0f}  [bn ZAR/a]",
+        0.5, -0.35,
+        line1,
+        transform=ax.transAxes, ha="center", va="top", fontsize=7,
+    )
+    ax.text(
+        0.5, -0.45,
+        line2,
         transform=ax.transAxes, ha="center", va="top", fontsize=7,
     )
 
@@ -499,6 +530,6 @@ if __name__ == "__main__":
     plot_total_energy_pie(n, config["plotting"], ax=ax1)
 
     ax2 = fig.add_axes([-0.115, 0.15, 0.22, 0.30])
-    plot_total_cost_bar(n, config["plotting"], ax=ax2, gen_emissions_df=gen_em)
+    plot_total_cost_bar(n, config["plotting"], ax=ax2, gen_emissions_df=gen_em, total_emissions=co2_2030)
 
     fig.savefig(snakemake.output.ext, transparent=True, bbox_inches='tight')
