@@ -104,6 +104,20 @@ def set_extendable_limits_global(n):
     for lim, global_limit in global_limits.items():
         global_limit.index = global_limit.index.droplevel([0, 1, 2, 3])
         global_limit = global_limit.loc[~(global_limit == ignore[lim]).all(axis=1)]
+        # AM added: Excel has cumulative IRP targets including existing 2025 installed base.
+        # Step 1: subtract existing non-extendable capacity → net new-build targets.
+        # Step 2: cumulative net → per-investment-period delta (new build IN that period).
+        existing_cap = pd.Series(0.0, index=global_limit.index)
+        for carrier in global_limit.index:
+            existing_cap[carrier] = (
+                n.generators.query("carrier == @carrier and not p_nom_extendable").p_nom.sum()
+                + n.storage_units.query("carrier == @carrier and not p_nom_extendable").p_nom.sum()
+            )
+        global_limit = global_limit.sub(existing_cap, axis=0).clip(lower=0)
+        if len(global_limit.columns) > 1:
+            delta = global_limit.diff(axis=1)
+            delta.iloc[:, 0] = global_limit.iloc[:, 0]
+            global_limit = delta.clip(lower=0)
         constraints = [
             {
                 "name": f"global_{lim}-{carrier}-{y}",

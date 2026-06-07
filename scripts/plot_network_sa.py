@@ -459,21 +459,22 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
     # Cost summary text below bars
     fc_total = sum(fc.get(c, 0.0) for c in carriers)
     vc_total = sum(vc.get(c, 0.0) for c in carriers)
-    total_all = fc_total + vc_total + grid_fc
+    co2_total = (co2_cost_bn * 1e9) if co2_cost_bn is not None else 0.0
+    total_all = fc_total + vc_total + grid_fc + co2_total
     em_str = f"{total_emissions:.1f} MtCO₂/a" if total_emissions is not None else "n/a"
-    ct_str = f"{co2_cost_bn:.0f} bn ZAR" if co2_cost_bn is not None else "n/a"
-    line1 = f"Total Emissions: {em_str}    |    Total Costs: {total_all/1e9:.0f} bn ZAR/a"
-    line2 = (f"Capital Costs: {fc_total/1e9:.0f}    |    Marginal Costs: {vc_total/1e9:.0f}"
-             f"    |    Carbon Tax: {ct_str}    [bn ZAR/a]")
+    ct_str = f"{co2_cost_bn:.0f} bn ZAR/a" if co2_cost_bn is not None else "n/a"
+    summary = "\n".join([
+        f"Total Emissions:  {em_str}",
+        f"Total Costs:      {total_all/1e9:.0f} bn ZAR/a",
+        f"Capital Costs:    {fc_total/1e9:.0f} bn ZAR/a",
+        f"Marginal Costs:   {vc_total/1e9:.0f} bn ZAR/a",
+        f"Carbon Tax:       {ct_str}",
+    ])
     ax.text(
-        0.5, -0.35,
-        line1,
-        transform=ax.transAxes, ha="center", va="top", fontsize=7,
-    )
-    ax.text(
-        0.5, -0.45,
-        line2,
-        transform=ax.transAxes, ha="center", va="top", fontsize=7,
+        0.0, -0.30,
+        summary,
+        transform=ax.transAxes, ha="left", va="top", fontsize=7,
+        linespacing=1.6,
     )
 
 

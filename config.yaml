@@ -315,6 +315,7 @@ plotting:
     battery_4h: "Battery 4h"
     battery_8h: "Battery 8h"
     hydro: Hydro
+    bioenergy: Biomass
     rmippp: RMIPPP
     sasol_coal: "Sasol Coal"
     sasol_gas: "Sasol Gas"
