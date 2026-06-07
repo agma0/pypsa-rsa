@@ -176,13 +176,17 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     linewidth_factor = opts["map"][attribute]["linewidth_factor"]
     bus_size_factor = opts["map"][attribute]["bus_size_factor"]
 
-    # Color each line: dark blue = expanded, light blue = existing
-    color_exp = line_colors["exp"]   # dark blue
-    color_cur = line_colors["cur"]   # light blue
+    # Color each line/link: dark blue = expanded, light blue = existing
+    color_exp = line_colors["exp"]   # dark blue  #1f77b4
+    color_cur = line_colors["cur"]   # light blue #aec7e8
     expanded_lines = (n.lines.s_nom_opt - n.lines.s_nom) > 0.01 * n.lines.s_nom.clip(lower=1)
     line_colors_map = expanded_lines.map({True: color_exp, False: color_cur})
     expanded_links = (n.links.p_nom_opt - n.links.p_nom) > 0.01 * n.links.p_nom.clip(lower=1)
     link_colors_map = expanded_links.map({True: color_exp, False: color_cur})
+    n_exp = expanded_links.sum()
+    print(f"[plot_map] {n_exp}/{len(expanded_links)} links expanded; "
+          f"p_nom range {n.links.p_nom.min():.0f}–{n.links.p_nom.max():.0f} MW, "
+          f"p_nom_opt range {n.links.p_nom_opt.min():.0f}–{n.links.p_nom_opt.max():.0f} MW")
 
     if supply_regions_path is not None:
         supply_regions = gpd.read_file(supply_regions_path)
@@ -425,8 +429,15 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
         co2_by_carrier = co2_cost_total[
             (~co2_cost_total.index.isin(CARRIER_DROP)) & (co2_cost_total > 0)
         ] / total_load
-        co2_cost_bn = co2_by_carrier.sum() * total_load / 1e9
-        print(f"[cost bar] CO2 total={co2_by_carrier.sum():.1f} R/MWh  ({co2_cost_bn:.1f} bn ZAR)")
+        # Summary text: CO2 cost for target year only (consistent with total_emissions = co2_2030)
+        target_y = n.investment_periods[-1] if len(n.investment_periods) > 0 else None
+        if target_y is not None and target_y in gen_emissions_df.index:
+            co2_target = energy_all.loc[target_y, common] * gen_emissions_df.loc[target_y, common] * ct_rate / 1000
+            co2_cost_bn = co2_target.groupby(carrier_map).sum().sum() / 1e9
+        else:
+            co2_cost_bn = co2_by_carrier.sum() * total_load / 1e9
+        print(f"[cost bar] CO2 bar={co2_by_carrier.sum():.1f} R/MWh  "
+              f"({target_y} only: {co2_cost_bn:.1f} bn ZAR)")
         bottom_co2 = 0.0
         for c in CARRIER_ORDER:
             if c not in co2_by_carrier.index:
@@ -439,18 +450,26 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
                         ha="center", va="center", fontsize=7, color="white")
             bottom_co2 += val
 
-    # Bar 3: Grid (AC line) capital cost [R/MWh]
-    grid_color = opts["tech_colors"].get("AC line", "#6c9459")
-    grid_rmwh = grid_fc / total_load if total_load > 0 else 0.0
-    ax.bar([x_grid], [grid_rmwh], color=grid_color, width=bw, zorder=-1)
-    if grid_rmwh > 30:
-        ax.text(x_grid, 0.5 * grid_rmwh, "Grid",
-                ha="center", va="center", fontsize=7, color="white")
-    print(f"[cost bar] Grid={grid_rmwh:.1f} R/MWh")
+    # Bar 4: Grid capital cost — split existing (light blue) vs expanded (dark blue)
+    color_grid_cur = "#aec7e8"   # light blue — matches map existing
+    color_grid_exp = "#1f77b4"   # dark blue  — matches map expanded
+    ext = n.links[n.links.p_nom_extendable]
+    if not ext.empty:
+        existing_grid_fc = (ext.capital_cost * ext.p_nom_min).sum() * 1000
+        expanded_grid_fc = (ext.capital_cost * (ext.p_nom_opt - ext.p_nom_min).clip(lower=0)).sum() * 1000
+    else:
+        existing_grid_fc = grid_fc
+        expanded_grid_fc = 0.0
+    grid_fc = existing_grid_fc + expanded_grid_fc   # update total for summary text
+    existing_rmwh = existing_grid_fc / total_load if total_load > 0 else 0.0
+    expanded_rmwh = expanded_grid_fc / total_load if total_load > 0 else 0.0
+    ax.bar([x_grid], [existing_rmwh], color=color_grid_cur, width=bw, zorder=-1)
+    ax.bar([x_grid], [expanded_rmwh], bottom=existing_rmwh, color=color_grid_exp, width=bw, zorder=-1)
+    print(f"[cost bar] Grid existing={existing_rmwh:.1f} R/MWh, expanded={expanded_rmwh:.1f} R/MWh")
 
     ct_rate = opts.get("carbon_tax_rate_2030", 462)
     ax.set_xticks([x_cap, x_marg, x_co2, x_grid])
-    ax.set_xticklabels(["Capital", "Marginal", f"CO₂\n({ct_rate} R/t)", "Grid"], fontsize=8)
+    ax.set_xticklabels(["Capital", "Marginal", f"CO₂\nTax\n({ct_rate} R/t)", "Grid"], fontsize=7)
     ax.set_ylabel("Avg system cost [R/MWh]")
     ax.set_xlim([0, 1.15])
     ax.set_title("System Cost", fontdict=dict(fontsize="medium"))
@@ -465,10 +484,11 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
     ct_str = f"{co2_cost_bn:.0f} bn ZAR/a" if co2_cost_bn is not None else "n/a"
     summary = "\n".join([
         f"Total Emissions:  {em_str}",
-        f"Total Costs:      {total_all/1e9:.0f} bn ZAR/a",
+        f"",
         f"Capital Costs:    {fc_total/1e9:.0f} bn ZAR/a",
         f"Marginal Costs:   {vc_total/1e9:.0f} bn ZAR/a",
         f"Carbon Tax:       {ct_str}",
+        f"Total Costs:      {total_all/1e9:.0f} bn ZAR/a",
     ])
     ax.text(
         0.0, -0.30,
@@ -491,6 +511,7 @@ if __name__ == "__main__":
     n.loads["carrier"] = n.loads.bus.map(n.buses.carrier) + " load"
     n.stores["carrier"] = n.stores.bus.map(n.buses.carrier)
     n.lines["carrier"] = "AC line"
+    n.links["carrier"] = "AC line"   # transmission links — same carrier for cost aggregation
     n.transformers["carrier"] = "AC transformer"
 
     set_plot_style()
@@ -523,7 +544,7 @@ if __name__ == "__main__":
         common = gen_em.columns.intersection(energy_all.columns)
         co2_by_period = (energy_all[common] * gen_em[common]).sum(axis=1) / 1e9  # MtCO2
         co2_2030 = co2_by_period.get(2030, co2_by_period.iloc[-1])
-        fig.text(0.18, 0.13, f"CO₂ 2030: {co2_2030:.1f} MtCO₂/a", fontsize=9)
+        pass  # CO2 shown in cost bar text below
     except Exception:
         pass
 

@@ -225,6 +225,8 @@ capital_cost [ZAR/MW/yr] = length [km] × length_factor × (investment [ZAR/MW/k
 
 Parameters are stored in `config.yaml` under `lines.hvac_overhead`. No separate Excel input needed.
 
+**Cost accounting note:** `aggregate_costs()` computes `capital_cost × p_nom_opt` for all extendable links — this charges for the **full** optimized capacity (existing + any expansion), not just the incremental part. Grid costs therefore appear even if the solver chose not to expand any corridor. This is intentional: existing transmission capacity is treated as a capital asset with ongoing annualised costs. Grid costs in the plot ≠ proof that expansion occurred.
+
 ---
 
 ## 9. Code Modifications
@@ -272,12 +274,19 @@ Logic:
 
 ### 9.8 `scripts/plot_network_sa.py`
 
-No structural changes required — the plot script already handles transmission expansion results (light blue = existing capacity, dark blue = expanded). Two fixes applied:
-
-- **Cost scaling (lines 338–340):** `fc = fc * 1000; vc = vc * 1000` — costs were read in wrong units from the network and needed scaling to ZAR/MWh for display.
-- **Default test scenario (line 454):** `scenario = 'P0_BASE'` set as default for interactive use.
-
 Plots are saved to `results/Coal_Flexibilisation/{scenario}/outputs/plots/`.
+
+**Fixes and changes applied (sessions 5–7):**
+
+- **Cost scaling (lines 338–340):** `fc = fc * 1000; vc = vc * 1000` — costs were stored in R/kW and R/kWh (model convention), needed ×1000 to get correct ZAR/MWh display.
+- **Default test scenario:** `scenario = 'P0_BASE'` set as default for interactive use.
+- **Grid carrier bug fix:** Transmission is modelled as Links (not Lines), which had no carrier set. `aggregate_costs()` groups by carrier, so grid costs were always 0. Fix: `n.links["carrier"] = "AC line"` added in `__main__` alongside `n.lines["carrier"] = "AC line"`.
+- **Grid cost bar colour:** `color_exp` in `plot_map` now reads from `tech_colors["AC line"]` so map expansion colour matches grid bar colour.
+- **Bottom text:** Cost summary below bar now shows 5 left-aligned stacked lines: Total Emissions / (blank) / Capital Costs / Marginal Costs / Carbon Tax / Total Costs. Total Costs includes carbon tax.
+- **Carrier legend order:** `CARRIER_ORDER` reordered to coal → CCGT → OCGT → Nuclear → …
+- **Colours (`config.yaml` tech_colors):** coal `#333333` (dark grey), nuclear `#cc0000` (red), CSP `#ff8000` (orange), CCGT `#999999` / OCGT `#bbbbbb` (light grey), hydro `#9055aa` (purple).
+- **Nice names (`config.yaml`):** `ccgt_steam` → "CCGT", `ocgt_gas` → "OCGT", added `bioenergy` → "Biomass".
+- **Map legend:** "Netz" → "Grid"; Capacity legend nudged right (`bbox_to_anchor=(0.07, 1.01)`).
 
 ---
 

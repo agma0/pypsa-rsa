@@ -143,6 +143,16 @@ electricity:
     extended: [coal, nuclear, ccgt_steam]
 
   allow_over_generation: True
+
+  # AM added: maps each min/max_total_installed carrier to the existing (non-extendable)
+  # model carriers that count toward that constraint's baseline.
+  # Used in prepare_and_solve_network.py to subtract existing capacity from cumulative IRP targets.
+  existing_capacity_carriers:
+    wind:         [wind, wind_low]
+    solar_pv_low: [solar_pv, solar_pv_low]
+    ocgt_gas:     [ocgt_diesel, ocgt_gas, ocgt_avf]
+    battery_4h:   [battery_4h]
+    phs:          [phs]
 lines:
   threshold: 220 # only voltages >=220kV are considered in network capacity calculations
   v_nom: 400. #changed from 380kV from PyPSA-EUR to 400kV for South Africa
