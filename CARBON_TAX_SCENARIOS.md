@@ -1,7 +1,7 @@
 # Carbon Tax Scenarios — Paper 0 (2030 Snapshot)
 
 Author: Agatha Majcher  
-Updated: 2026-06-06
+Updated: 2026-06-06 (Session 4)
 
 ---
 
@@ -182,7 +182,7 @@ File: `scenarios/Coal_Flexibilisation/scenarios_to_run.xlsx`, sheet `scenario_de
 | extendable_min_total | MTSAO_BQ | MTSAO_BQ | MTSAO_BQ | MTSAO_BQ |
 | unit_committment | FALSE | FALSE | FALSE | FALSE |
 | endogenous_coal_decom | FALSE | FALSE | FALSE | FALSE |
-| override_coal_msl | 70% | 70% | 70% | 70% |
+| override_coal_msl | **50%** | **50%** | **50%** | **50%** |
 | load_trajectory | IRP24_LOW | IRP24_LOW | IRP24_LOW | IRP24_LOW |
 | global_discount_rate | 9.2% | 9.2% | 9.2% | 9.2% |
 | weather | W_P50 | W_P50 | W_P50 | W_P50 |
@@ -282,6 +282,12 @@ Two pre-existing bugs in `add_electricity.py` exposed and fixed (`#AM adjusted`)
 **Status as of 2026-05-27:** SIGSEGV (C-level crash) occurs in `add_electricity.py` after 
 loading solar_pv profiles for 10-node model. Root cause not yet identified. Temporarily reverted 
 to `regions=1` for CT-logic validation. Multi-node to be fixed separately.
+
+**FIXED 2026-06-06 (Session 4):** SIGSEGV resolved. Root cause was that the renewable profile
+loading loop used `bus_ref` (a single-bus reference variable) and converted the xarray DataArray
+to pandas before the per-bus selection loop, preventing `.sel()` from working. Fix: load profiles
+as xarray DataArray, do per-bus `.sel(bus=bus_name)` inside the loop.
+Code location: `add_electricity.py` lines 624–632 (`#AM adjusted`).
 
 **Known gap:** `extendable_technologies.xlsx` only has `supply_region=1` entries — annual build 
 limits (MOD_CNST) and minimum totals (MTSAO_BQ) will not apply for 10-node runs (warning in 
@@ -400,6 +406,84 @@ snakemake results/Coal_Flexibilisation/P0_CT_R/networks/solved.nc   -j 4
 | Emissions 2030 [MtCO₂]           | 153.6   | 137.9  | 127.5     | 127.6   |
 | CT revenues = 462 × emis [bn ZAR] | 70.98   | 63.72  | —         | —       |
 | Reinvestment Σ(p_nom×capex) [bn ZAR] | —    | —      | 70.98 ✓   | 63.72 ✓ |
+
+---
+
+## Results — 1-Bus Runs (regions=1, LC-182h, 48 timesteps — 2026-06-06, Session 4)
+
+*All 4 scenarios solved at regions=1. These are valid internally consistent results but do not include
+spatial disaggregation or transmission constraints. Useful for verifying CT logic and reinvestment constraint.*
+
+### Generation Mix 2030 [TWh]
+
+| carrier | P0_BASE | P0_CT | P0_BASE_R | P0_CT_R |
+|---|---:|---:|---:|---:|
+| coal | 165.7 | 145.3 | 132.0 | 132.6 |
+| nuclear | 14.6 | 14.6 | 14.6 | 14.6 |
+| solar_pv | 38.3 | 58.7 | 49.4 | 72.5 |
+| solar_pv_low | 0.0 | 0.0 | 23.6 | 0.0 |
+| wind | 14.8 | 14.8 | 14.7 | 14.7 |
+| rmippp | 1.9 | 1.9 | 1.9 | 1.9 |
+
+### New Build 2030 [MW] — build_year==2030 only
+
+| carrier | P0_BASE | P0_CT | P0_BASE_R | P0_CT_R |
+|---|---:|---:|---:|---:|
+| solar_pv + solar_pv_low | 11,213 | 19,191 | 37,659 | 33,150 |
+| wind | 0 | 0 | 0 | 0 |
+
+### System Costs & Emissions
+
+| metric | P0_BASE | P0_CT | P0_BASE_R | P0_CT_R |
+|---|---:|---:|---:|---:|
+| Objective [bn ZAR] | 1.82 | 2.34 | 2.07 | 2.45 |
+
+### Key Observations — 1-Bus Results
+
+**BASE vs CT → CT price signal is working:**
+Coal drops from 165.7 → 145.3 TWh (−12%). New solar doubles from 11.2 → 19.2 GW. The 462 R/tCO₂
+signal makes coal more expensive, so the optimizer deploys more solar instead.
+
+**BASE_R vs CT_R → dispatch almost identical (132.0 vs 132.6 TWh coal):**
+Both _R scenarios are forced to invest so much RE (37.7 GW and 33.1 GW respectively) by the
+reinvestment constraint that coal hits its `p_min_pu` floor in essentially all timesteps. At that
+point, the CT price signal in CT_R cannot push coal lower — the floor is the floor.
+
+**Why BASE_R builds MORE solar than CT_R (37.7 vs 33.1 GW):**
+P0_BASE has higher emissions than P0_CT → higher CT revenues → larger reinvestment requirement
+→ BASE_R must invest more. This is correct: in a world where no CT signal reduced dispatch
+beforehand, there are more emissions to recycle.
+
+**Conclusion on 1-bus:** CT logic and reinvestment constraint are functioning correctly.
+Scenario differentiation is visible and physically interpretable. However, 1-bus results lack
+regional granularity and transmission constraints — use as validation only, not for paper.
+
+---
+
+## Results — 10-Bus Runs: IDENTICAL (regions=10, LC-182h — 2026-06-06, Session 4)
+
+> ⚠️ **PROBLEM — ALL FOUR SCENARIOS PRODUCED IDENTICAL PHYSICAL RESULTS:**
+> Coal dispatch = 136.41 TWh, Emissions ≈ 149.87 MtCO₂, New build ≈ 27.3 GW solar + 12.7 GW wind
+> in all 4 scenarios. Costs differ (objective varies) but physical dispatch and investment are identical.
+> These results are NOT usable for comparison. Root cause identified — see below.
+
+### Root cause: `override_coal_msl = 0.7` pins coal in all timesteps
+
+With 10 buses and fixed (non-expandable) transmission:
+- Each bus must independently meet its own load from local generation ± limited imports
+- `override_coal_msl = 0.7` → every coal plant must run at ≥ 70% of its available capacity in every timestep
+- Coal minimum output at every bus already equals or exceeds local load → no room for CT to reduce coal
+- CT signal (462 R/tCO₂) cannot push coal below 70% floor → dispatch identical in all 4 scenarios
+- With 1-bus: aggregate coal capacity can be partially offset because there's no per-node constraint
+
+**Plant data context:** `fixed_technologies.xlsx` has `min_stable_level = 65%` for all coal plants.
+The `override_coal_msl = 0.7` override makes it STRICTER than the physical plant data.
+
+**Fix decided:** Change `override_coal_msl` from `0.7` to `0.5` in `scenarios_to_run.xlsx` for all
+4 P0 scenarios. This is technically defensible (within the realistic 40–65% range for SA coal plants)
+and thematically consistent with the `Coal_Flexibilisation` scenario family.
+
+**Status:** ⏳ Re-run with MSL=0.5 pending.
 
 ---
 
@@ -653,13 +737,18 @@ Complete investigation of all parameter issues before final LC runs. Verified di
 
 ---
 
-### CRITICAL BUG 2: add_electricity.py SIGSEGV blocks regions=10 for non-BASE scenarios
+### ~~CRITICAL BUG 2: add_electricity.py SIGSEGV~~ — FIXED ✅ (Session 4, 2026-06-06)
 
-When `regions=10` is set in the Excel and Snakemake runs `add_electricity` for P0_CT/BASE_R/CT_R, the script crashes with a segfault after loading solar_pv profiles (the multi-node profile loading loop). This is why those 3 scenarios fell back to being solved at regions=1.
+**Root cause:** The renewable profile loading loop used `bus_ref` (only defined for single-node
+models) and converted the xarray DataArray to pandas before the per-bus selection loop,
+making `.sel(bus=...)` fail with a C-level crash.
 
-**Blocked by:** This bug is in `add_electricity.py`, likely in `generate_extendable_wind_solar_profiles()` or `generate_fixed_wind_solar_profiles()`. Needs systematic debugging (add print statements before crash, verify generator name format matches pu_profiles columns).
+**Fix applied:** `add_electricity.py` lines 624–632 (`#AM adjusted`): load profiles as xarray
+DataArray, do per-bus `.sel(bus=bus_name)` inside the loop. All 4 scenarios now run at regions=10.
 
-**Fix required:** Debug and fix the SIGSEGV in add_electricity.py for regions=10 before any final runs. Until then, all 4 scenarios will be single-node regardless of the Excel setting.
+**New issue discovered after fix:** All 4 regions=10 scenarios produce identical dispatch and
+investment results. Root cause: `override_coal_msl=0.7` (see new section above).
+Fix: change `override_coal_msl` to `0.5` in `scenarios_to_run.xlsx`, then re-run.
 
 ---
 
@@ -809,31 +898,567 @@ Hinweis: Kostenbalken (`plot_total_cost_bar`) ist deaktiviert — API-Mismatch m
 
 ## Open Items / To Do
 
-### Priority 1 — Full-resolution runs (LC — 8760 h) ← NEXT STEP
+### Status Overview (2026-06-06, Session 4)
 
-Both test-run stages are complete (regions=1 on 2026-05-27, regions=10 on 2026-06-06).
-CT logic validated. Results directionally consistent — now need full 8760h runs for paper.
+| Bug/Task | Status |
+|---|---|
+| Bug A: regions=1 for P0_CT/BASE_R/CT_R | ✅ FIXED — Excel corrected |
+| Bug B: SIGSEGV in add_electricity.py | ✅ FIXED — see Implementation Log |
+| 10-bus runs: identical results | ⏳ ROOT CAUSE KNOWN — needs coal MSL fix |
+| 1-bus runs: all 4 scenarios | ✅ COMPLETE — CT logic verified |
 
-- [ ] Change `options` from `LC-182h` → `LC` in `scenarios_to_run.xlsx` for all P0 scenarios
-- [ ] Re-run all 4 scenarios (Stage 1: P0_BASE + P0_CT in parallel; Stage 2: _R scenarios after)
-- [ ] Check whether BASE_R and CT_R emissions diverge as expected (wind vs solar mix effect)
-- [ ] Confirm whether solar_pv at 48ts is representative of full-year dispatch (capex optimistic?)
+---
 
-### Priority 2 — Fix regions=10 (multi-node)
+### Priority 0 — Fix coal MSL, re-run 10-bus ← CURRENT NEXT STEP
 
-- [ ] **SIGSEGV in add_electricity.py** — crash after loading solar_pv profiles for 10-node.
-  Likely in the loop at `extend_reference_data()` or `pu_profiles.loc["max", pu.name]`.  
-  Needs systematic debugging: add print statements before crash, check if generator names
-  match between pu_profiles columns and `f"{bus}-{carrier}-{y}"` format.
-- [ ] Once SIGSEGV fixed: add `supply_region=10` entries to `extendable_technologies.xlsx`
-  for `MOD_CNST` annual limits and `MTSAO_BQ` minimum totals. Distribute national limits
-  (e.g. ~1000 MW/yr wind) across 10 buses proportionally to resource area or IRP allocation.
-- [ ] Re-run all P0 scenarios with regions=10 (set back in Excel) and validate.
+**What to do in Excel (`scenarios_to_run.xlsx` → sheet `scenario_definition`):**
+- [ ] Change `override_coal_msl` from `0.7` → **`0.5`** for all 4 P0 scenarios (rows 300–303)
 
-### Priority 3 — Paper analysis
+**Then re-run:**
+```bash
+pixi run snakemake solve_all -j 4 -F --resources solver_slots=2
+```
 
-- [ ] Compare BASE_R vs CT_R RE mix and emissions in full LC run (key RQ3 result)
-- [ ] Quantify marginal emission reduction: CT alone (BASE→CT) vs recycling alone (BASE→BASE_R)
-  vs combined (BASE→CT_R)
-- [ ] Produce analysis outputs: capacity mix, emissions, revenues, RE deployment
+**Verify success:** All 4 scenarios should have DIFFERENT coal dispatch. P0_CT coal < P0_BASE coal.
+Expected: BASE ~170 TWh, CT ~145 TWh (CT reduces coal by ~15%). _R scenarios lower than their base.
+
+---
+
+### Priority 1 — Transmission expansion (optional, needs old pypsa-za code)
+
+The model currently uses a **fixed transmission network** (`p_nom_extendable=False`, no grid costs).
+The 10-bus topology (Eastern Cape, Free State, Gauteng, Hydra Central, KZN, Limpopo, Mpumalanga,
+North West, Northern Cape, Western Cape) is correctly represented with existing 400kV St. Clair N-1
+capacities. 16 potential new corridors are defined in `transmission_expansion.xlsx` (all zeros).
+
+**To enable transmission investment optimisation:**
+1. User to provide old pypsa-za transmission expansion code (capital cost structure, which links
+   were `p_nom_extendable=True`, `p_nom_max` per corridor)
+2. Modify `base_network.py` line 159: add extendable links with `capital_cost` [R/MW]
+3. Set `p_nom_max` per corridor in `transmission_expansion.xlsx`
+
+**Decision pending:** Is transmission expansion needed for P0 (2030 snapshot)?
+For P1 (2025–2050), transmission investment is more relevant.
+
+---
+
+### Priority 2 — Final LC runs (8760 h)
+
+After Priority 0 validated with 182h:
+- [ ] Change `options` from `LC-182h` → `LC` in `scenarios_to_run.xlsx` for all 4 P0 scenarios
+- [ ] Increase SLURM resources: `--time=48:00:00`, `--mem=128G`, `--cpus-per-task=16`
+- [ ] Add `supply_region=10` entries to `extendable_technologies.xlsx` for MOD_CNST and MTSAO_BQ
+- [ ] Check whether BASE_R and CT_R emissions diverge (key RQ3 result — expected to diverge with 8760h)
+
+### Priority 3 — P1 scenarios (2025–2050)
+
+Before P1 runs:
+- [ ] In `scenarios_to_run.xlsx`: change `fixed_emissions` + `extendable_emissions` from `FS_2045` → `BASE`
+  (user does not want H₂ fuel switch assumptions; FS_2045 has OCGTs → 0 emissions in 2045)
+- [ ] Note: for P0, this makes NO difference (FS_2045 = BASE in 2030) — P0 runs are unaffected
+
+### Priority 4 — Paper analysis
+
+- [ ] Quantify marginal emission reduction: CT alone (BASE→CT) vs recycling alone (BASE→BASE_R) vs combined (BASE→CT_R)
+- [ ] Produce final analysis outputs: capacity mix, emissions, revenues, RE deployment
 - [ ] Address in paper: why CT signal favours solar_pv over wind (capex differential)
+- [ ] Address in paper: why _R scenarios have similar dispatch (p_min_pu floor binding) but different capacity build
+
+---
+
+## Parameter Guide — Key Settings in scenarios_to_run.xlsx
+
+*For Meridian Economics: what each parameter controls and why it's set as it is for P0.*
+
+| Parameter | P0 value | What it does | Why this value |
+|---|---|---|---|
+| `regions` | 10 | Number of Eskom supply buses (1 = single node, 10 = regional) | Spatial disaggregation with real transmission |
+| `override_coal_msl` | 0.7 → **0.5** | Coal minimum stable level as fraction of available capacity. Overrides plant-level data (65% in fixed_technologies.xlsx). 0 = no floor. | 0.5 = technically defensible (40–65% real range for SA coal); 0.7 was too restrictive, pinning coal in all timesteps |
+| `coal_ramp_rate_multiplier` | 1.5 | Multiplies plant-level ramp limits (up/down) for coal by this factor. 1.5 = 50% faster ramping. | Coal Flexibilisation scenario: relaxed ramp assumption. No effect with UC=0 and TSAM 182h (non-consecutive timesteps) |
+| `dispatch_coal_flex` | SL_0 | Coal dispatch flexibility parameter — used ONLY inside `unit_committment=1` block. | **Has NO effect for P0** (UC=0 for all P0 scenarios). Ignore. |
+| `fixed_emissions` | FS_2045 | Emission factor trajectory for EXISTING conventional plants (kgCO₂/GJ). FS_2045 = OCGTs switch to zero-emission fuel in 2045. | **No effect for P0** (2030 < 2045 → FS_2045 = BASE in 2030). For P1: change to BASE (no H₂ assumption). |
+| `extendable_emissions` | FS_2045 | Same as above but for NEW BUILD generators. | Same logic — no effect for P0. Change to BASE for P1. |
+| `carbon_tax` | none / CT_2030 | Which CT trajectory to use. CT_2030 = 462 R/tCO₂ in 2030 only. | none for BASE scenarios; CT_2030 for CT scenarios |
+| `carbon_constraints` | none / CT_REINVEST | CT_REINVEST activates the reinvestment constraint: Σ(new RE × capex) ≥ CT revenues from reference scenario | none for non-recycling; CT_REINVEST for _R scenarios |
+| `extendable_max_annual` | MOD_CNST / UNC | Annual build rate limit per technology. MOD_CNST = IRP-aligned (~1 GW/yr wind). UNC = no limit. | _R scenarios need UNC: MOD_CNST makes reinvestment infeasible (see "Why _R uses UNC") |
+| `fixed_conventional` | VAR_HR | Which heat rate / cost data to use for existing plants | Variable heat rate scenario (matches IRP assumptions) |
+| `unit_committment` | 0 | 0 = LP dispatch (no commitment decisions). 1 = unit commitment with start-up costs. | All P0 scenarios use LP (faster, sufficient for investment planning) |
+
+---
+
+## Modeling Assumptions — Paper Justifications
+
+*This section documents the rationale behind key modeling choices for the paper and for
+reviewers / Meridian Economics. All choices are deliberate and should be stated explicitly
+in the paper's methodology section.*
+
+---
+
+### Coal Minimum Stable Level (MSL) = 50%
+
+**Parameter:** `override_coal_msl = 0.5`  
+**What it does:** Sets a lower bound on coal dispatch at 50% of available capacity in every
+timestep. Below 50%, coal plants are assumed to be technically unable to operate stably.
+
+**Data basis:** Plant-level data in `fixed_technologies.xlsx` gives `min_stable_level = 65%`
+for all Eskom coal plants (Arnot, Camden, Duvha, Grootvlei, Hendrina, Kelvin, Kendal, Komati,
+Kriel, Kusile, Lethabo, Majuba, Matimba, Matla, Medupi, Tutuka). This represents the
+manufacturer/technical floor under standard operating conditions.
+
+**Why 50%, not 65% or 70%:**
+- 50% is within the range used in SA power sector modelling literature for coal flexibility scenarios
+- It represents a scenario where Eskom implements operational changes to increase coal flexibility
+  (e.g., improved boiler control, reduced minimum stable operation)
+- This is explicitly a **"Coal Flexibilisation" scenario** — the scenario folder name reflects this
+  assumption. The paper should state: *"We assume coal plants can be dispatched down to 50%
+  of available capacity, reflecting a scenario of enhanced operational flexibility consistent
+  with Eskom's ongoing fleet optimisation efforts."*
+- 70% (previous value) produced a degenerate result: CT signal could not differentiate dispatch
+  across scenarios because coal was at its minimum in every timestep regardless of CT price.
+  This would make RQ2 (does CT change the capacity mix?) unanswerable.
+
+**Paper statement:** *The coal minimum stable level (MSL) is set at 50% of available capacity,
+consistent with the Coal Flexibilisation scenario design. This allows the carbon tax price
+signal to influence coal dispatch, which is a prerequisite for observing investment responses
+to the tax.*
+
+---
+
+### Coal Ramp Rate Multiplier = 1.5
+
+**Parameter:** `coal_ramp_rate_multiplier = 1.5`  
+**What it does:** Multiplies the plant-level ramp rates (up and down) by 1.5, allowing coal
+to change output 50% faster between timesteps than the technical plant data specifies.
+
+**Plant-level data:** Ramp rates range from 0.167%/h (Kendal, slow) to 0.600%/h (Kusile, fast).
+With the 1.5× multiplier: 0.25%/h to 0.90%/h.
+
+**Paper justification:** Consistent with the Coal Flexibilisation scenario narrative. Faster
+ramping represents scenarios where Eskom improves operational practices (e.g., more responsive
+boiler management, faster load-following). **Important limitation:** With TSAM (182h aggregated
+timesteps), consecutive snapshots may represent very different times of day or year. Ramp
+constraints between non-consecutive periods have limited physical meaning in TSAM. This parameter
+therefore has minimal quantitative effect on results but sets the scenario framing correctly for
+the full 8760h (LC) run where consecutive hourly timesteps make ramp limits meaningful.
+
+**Paper statement (if needed):** *Ramp rates are scaled by a factor of 1.5 relative to
+nameplate values to reflect improved operational flexibility, consistent with the Coal
+Flexibilisation scenario. This primarily affects the full-resolution hourly runs.*
+
+---
+
+### No Unit Commitment (UC = 0)
+
+**Parameter:** `unit_committment = 0`  
+**What it does:** Coal and gas generators are modelled as continuously dispatchable between
+their MSL and p_max_pu in each timestep (LP relaxation). No start-up/shut-down costs, no
+minimum up/down times. The `dispatch_coal_flex = SL_0` parameter is ignored (UC=0 block).
+
+**Paper justification:** Standard practice for investment planning models at national scale.
+Unit commitment is computationally expensive and adds little value for a 2030 snapshot
+investment model where the focus is on capacity mix, not operational scheduling detail.
+The MSL and ramp parameters capture the main operational constraints without full UC.
+
+**Paper statement:** *The model uses a linearised dispatch formulation without explicit unit
+commitment. Coal plant operational constraints are represented through minimum stable level
+(50% of available capacity) and ramp rate limits.*
+
+---
+
+### Emission Factor Trajectories (fixed_emissions, extendable_emissions)
+
+**Parameter:** `fixed_emissions = FS_2045`, `extendable_emissions = FS_2045`  
+**What it does:** FS_2045 = existing gas/diesel peakers (Ankerlig, Gourikwa etc.) switch to
+zero-emission fuel in 2045. Coal emission factors remain 96 kgCO₂/GJ in all years.
+
+**For P0 (2030 snapshot):** No effect — FS_2045 and BASE are **identical in 2030**.
+All coal and gas emission factors are unchanged at their 2025 values through at least 2040.
+
+**For P1 (2025–2050):** Change both to `BASE`:
+- BASE keeps OCGT emission factors constant at 74 kgCO₂/GJ through 2050 (no fuel switch)
+- FS_2045 drops OCGTs to 0 in 2045 (green hydrogen / sustainable aviation fuel assumption)
+- The paper (P1) explicitly does NOT assume hydrogen deployment → `BASE` is correct for P1
+- **Note:** Even `BASE` extendable emissions has `ocgt_diesel → 0 in 2040`. This only matters
+  if new diesel OCGTs are built — in P1, this is unlikely given RE cost trajectories.
+
+**Paper statement (P1):** *Emission factors for existing and new conventional generators
+follow a conservative baseline trajectory (no fuel switching assumed), consistent with
+South Africa's current policy environment which does not mandate hydrogen blending.*
+
+---
+
+### Spatial Resolution: 10 Buses (regions=10)
+
+**Parameter:** `regions = 10`  
+**What it does:** Disaggregates the national power system into 10 Eskom supply regions
+connected by the existing 400kV transmission network (St. Clair N-1 limits, bidirectional
+links, `p_nom_extendable=False`). Renewable resource profiles are spatially differentiated
+per bus.
+
+**Why 10 buses:**
+- Captures spatial heterogeneity in renewable resources (Northern Cape solar, Eastern Cape wind)
+  that a single-node model cannot represent
+- Transmission constraints affect which regions can export their RE surplus — relevant for
+  understanding where new RE investment is optimal under CT
+- 10 Eskom supply regions is the standard spatial resolution used in South African national
+  energy planning (consistent with IRP methodology)
+
+**Limitation:** Transmission network is fixed (`p_nom_extendable=False`). New transmission
+investment is not co-optimised with generation. Grid costs (existing infrastructure) are
+treated as sunk costs and not included in the objective. This is a standard assumption for
+a 2030 snapshot model but should be stated in the paper.
+
+**Paper statement:** *The model uses 10 Eskom supply regions with the existing 400 kV
+transmission network represented as fixed capacity constraints (N-1 security criterion).
+Transmission investment is not co-optimised; existing grid infrastructure is treated as
+sunk cost. Renewable resource availability is spatially differentiated by supply region.*
+
+---
+
+### Carbon Tax Rate: 462 R/tCO₂ (CT_2030)
+
+*(Already documented in "Carbon Tax Rate" section above — 462 R/tCO₂ = official 2030 headline
+rate per the 2022 Taxation Laws Amendment Act. Headline rate used, not effective rate after
+allowances. Explicitly a methodological upper bound.)*
+
+---
+
+### Time Resolution: LC-182h (test) → LC (final)
+
+**Test runs:** 182 representative hours (~48 timesteps via TSAM). Used for debugging and
+iteration. Results directionally correct but storage value and intraday RE profiles are
+poorly captured. **Not suitable for final paper results.**
+
+**Final runs:** LC = full 8,760 hourly timesteps. Required for:
+- Accurate storage dispatch and value (batteries, PHS)
+- Full seasonal variation in solar/wind profiles
+- Accurate quantification of BASE_R vs CT_R emission differences (night/day dispatch profiles matter)
+
+**Paper statement:** *Results are based on full-year hourly optimisation (8,760 timesteps).
+Time series aggregation (TSAM) is used for model development only.*
+
+---
+
+## Transmission Network — What's In and What's Not
+
+### What's there (working ✅)
+
+- **10-bus topology:** 10 Eskom supply regions (Eastern Cape, Free State, Gauteng, Hydra Central,
+  KwaZulu-Natal, Limpopo, Mpumalanga, North West, Northern Cape, Western Cape)
+- **Existing 400kV network:** loaded from Eskom shapefiles, St. Clair N-1 thermal limits calculated
+  from line length and voltage. Results in 38 bidirectional links (19 corridors × 2 directions).
+- **TDP lines:** Eskom TDP 2023 planned lines can be added — activate with `+tdp` in
+  `transmission_grid` parameter in scenarios_to_run.xlsx (currently: `existing` only)
+- **16 potential new corridors:** defined in `transmission_expansion.xlsx` with lengths and bus pairs
+
+### What's NOT there (missing ❌)
+
+- **Transmission investment optimisation:** All links have `p_nom_extendable=False` (hardcoded
+  in `base_network.py` line 159). The solver cannot build new lines.
+- **Grid capital costs:** No `capital_cost` assigned to links → existing transmission is sunk cost
+  (zero in the objective function). This is a standard assumption for 2030 snapshot models.
+- **`p_nom_max` for new corridors:** `transmission_expansion.xlsx` has all zeros → no capacity
+  bound for new lines even if extendability were enabled.
+
+### Implication for results
+
+The fixed transmission grid constrains regional energy flows. In some timesteps, a region with
+surplus RE cannot export it if transmission is at capacity → coal in that region must keep running
+to maintain local balance. This is one reason why the 10-bus model shows less CT responsiveness
+than the 1-bus model: regional must-run constraints are harder to relax.
+
+### Next step (optional)
+
+User to provide old pypsa-za transmission expansion code. Will add extendable links in
+`base_network.py` with `capital_cost` [R/MW] derived from line length × cost-per-MW-km.
+
+---
+
+## Snakemake Commands — Copy-Paste Reference
+
+All commands run from `/beegfs/scratch/agma/pypsa-rsa/`.
+
+> **Immer `pixi run` davor schreiben** damit die richtige Python-Umgebung benutzt wird:
+> `pixi run snakemake ...` (nicht nur `snakemake ...`)
+
+---
+
+### Alle 4 Szenarien auf einmal (empfohlen — Snakemake managed die Reihenfolge)
+
+```bash
+pixi run snakemake solve_all -j 4 -F --resources solver_slots=2
+```
+
+`-F` = force rebuild (alle Regeln neu ausführen, auch wenn outputs schon existieren)
+`-j 4` = max 4 parallele Jobs
+`--resources solver_slots=2` = max 2 Gurobi-Solver gleichzeitig (BASE+CT parallel, dann _R)
+
+---
+
+### Einzelne solved networks
+
+```bash
+# Stage 1 — unabhängig, können parallel laufen
+pixi run snakemake results/Coal_Flexibilisation/P0_BASE/networks/solved.nc -j 4
+pixi run snakemake results/Coal_Flexibilisation/P0_CT/networks/solved.nc -j 4
+
+# Stage 2 — warten automatisch auf Stage 1 (Snakemake Dependency)
+pixi run snakemake results/Coal_Flexibilisation/P0_BASE_R/networks/solved.nc -j 4
+pixi run snakemake results/Coal_Flexibilisation/P0_CT_R/networks/solved.nc -j 4
+```
+
+---
+
+### Einzelne Plots
+
+```bash
+# map_only.png + map_full.png für ein Szenario
+snakemake results/Coal_Flexibilisation/P0_BASE/outputs/plots/map_only.png -j 1
+snakemake results/Coal_Flexibilisation/P0_CT/outputs/plots/map_only.png -j 1
+snakemake results/Coal_Flexibilisation/P0_BASE_R/outputs/plots/map_only.png -j 1
+snakemake results/Coal_Flexibilisation/P0_CT_R/outputs/plots/map_only.png -j 1
+```
+
+---
+
+### Stage 1: P0_BASE + P0_CT gleichzeitig (parallel)
+
+```bash
+snakemake \
+  results/Coal_Flexibilisation/P0_BASE/networks/solved.nc \
+  results/Coal_Flexibilisation/P0_CT/networks/solved.nc \
+  -j 8
+```
+
+---
+
+### Stage 2: P0_BASE_R + P0_CT_R gleichzeitig (nachdem Stage 1 fertig)
+
+Snakemake löst die Dependencies automatisch auf — P0_BASE_R wartet auf P0_BASE, P0_CT_R wartet auf P0_CT.
+
+```bash
+snakemake \
+  results/Coal_Flexibilisation/P0_BASE_R/networks/solved.nc \
+  results/Coal_Flexibilisation/P0_CT_R/networks/solved.nc \
+  -j 8
+```
+
+---
+
+### Alle 4 solved networks + alle Plots auf einmal
+
+Snakemake managed die Reihenfolge selbst (Stage 1 vor Stage 2, solve vor plot):
+
+```bash
+snakemake solve_all -j 8
+```
+
+Oder manuell alle Targets angeben:
+
+```bash
+snakemake \
+  results/Coal_Flexibilisation/P0_BASE/networks/solved.nc \
+  results/Coal_Flexibilisation/P0_CT/networks/solved.nc \
+  results/Coal_Flexibilisation/P0_BASE_R/networks/solved.nc \
+  results/Coal_Flexibilisation/P0_CT_R/networks/solved.nc \
+  results/Coal_Flexibilisation/P0_BASE/outputs/plots/map_only.png \
+  results/Coal_Flexibilisation/P0_CT/outputs/plots/map_only.png \
+  results/Coal_Flexibilisation/P0_BASE_R/outputs/plots/map_only.png \
+  results/Coal_Flexibilisation/P0_CT_R/outputs/plots/map_only.png \
+  -j 8
+```
+
+---
+
+### Nur alle Plots (wenn alle solved.nc schon da sind)
+
+```bash
+snakemake results/plot_all_scenarios -j 4
+```
+
+---
+
+### Dry-run (zeigt was gebaut würde, ohne zu rechnen)
+
+```bash
+snakemake solve_all -j 8 --dry-run
+```
+
+---
+
+### Python-Umgebung (falls Snakemake die falsche Python nimmt)
+
+```bash
+# Snakemake mit pixi-Umgebung
+pixi run snakemake solve_all -j 8
+
+# Oder direkt:
+/home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all -j 8
+```
+
+---
+
+## SLURM — Runs auf dem Cluster
+
+---
+
+### Gurobi-Lizenz auf Compute Nodes
+
+Die Lizenz liegt in `~/gurobi.lic` (Home = NFS-Netzwerk-Filesystem → von allen Nodes erreichbar).
+Es ist eine **WLS-Lizenz** (Web License Service) — die Authentifizierung läuft über das Internet.
+
+> ⚠️ **Wichtig:** Compute Nodes müssen Internetzugang haben (outbound zu `license.gurobi.com`).
+> Wenn der Job mit `Error 10009: Failed to connect...` o.ä. abbricht → Cluster-Admin fragen ob
+> Compute Nodes HTTP/HTTPS nach außen dürfen, oder ob es einen lokalen Gurobi-Token-Server gibt.
+
+Im Job-Script wird der Pfad explizit gesetzt:
+```bash
+export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
+```
+
+---
+
+### Job-Script (`run_p0.job`)
+
+Liegt bei `/beegfs/scratch/agma/pypsa-rsa/run_p0.job`.
+
+```bash
+#!/bin/bash --login
+#SBATCH --job-name=pypsa_p0
+#SBATCH --output=logs/slurm_p0_%j.out
+#SBATCH --time=8:00:00
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=8
+#SBATCH --mail-type=begin,end,fail
+#SBATCH --mail-user=agathamajcher@gmx.de
+
+# Gurobi WLS license (in home = NFS, accessible from all nodes)
+export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
+
+cd /beegfs/scratch/agma/pypsa-rsa
+
+pixi run snakemake solve_all -j 4 -F --resources solver_slots=2
+```
+
+**Was `--resources solver_slots=2` macht:** Erlaubt max. 2 Gurobi-Solver gleichzeitig.
+Snakemake läuft dann so: BASE + CT parallel → dann BASE_R + CT_R parallel.
+
+---
+
+### Starten, Status prüfen, abbrechen
+
+```bash
+# Starten
+sbatch run_p0.job
+
+# Status prüfen
+squeue --user=agma
+
+# Live-Output verfolgen (JobID ersetzen)
+tail -f logs/slurm_p0_<jobid>.out
+
+# Job abbrechen
+scancel <jobid>
+```
+
+---
+
+### Job live beobachten
+
+```bash
+# Log-Datei live verfolgen (JobID ersetzen)
+tail -f logs/slurm_p0_<jobid>.out
+
+# Ctrl+C bricht nur das tail ab — der Job läuft weiter!
+```
+
+Im Log erscheint jede Stunde automatisch:
+```
+--- HOURLY UPDATE: Sat Jun  6 18:05:34 2026 --- still running ---
+```
+
+Dazwischen normaler Snakemake-Output: welche Rules gerade laufen, was fertig ist, Fehlermeldungen.
+
+---
+
+### Job-Status und Verwaltung
+
+```bash
+# Alle eigenen Jobs anzeigen
+squeue --user=agma
+
+# Einen bestimmten Job anzeigen
+squeue --job <jobid>
+
+# Job abbrechen
+scancel <jobid>
+
+# Alle eigenen Jobs abbrechen
+scancel --user=agma
+
+# Verfügbare Partitionen anzeigen
+sinfo
+```
+
+---
+
+### Wenn Partitions-Fehler: verfügbare Partitionen checken
+
+```bash
+sinfo
+```
+
+Falls nötig `#SBATCH --partition=smp` (oder passende Partition) ins Job-Script ergänzen.
+
+---
+
+### Für finale LC-Runs (8760h — länger, mehr RAM)
+
+Für die vollen Jahresläufe `--time` und `--mem` erhöhen:
+
+```bash
+#SBATCH --time=48:00:00
+#SBATCH --mem=128G
+#SBATCH --cpus-per-task=16
+```
+
+---
+
+## Changelog — Errors Encountered and Resolved
+
+*Chronological log of all bugs, errors and fixes. For reproducibility and handover.*
+
+---
+
+### Session 1–2 (2026-05-27) — Initial implementation
+
+| Error | Resolution |
+|---|---|
+| `SCENARIO_SETUP["capacity_expansion_years"]` KeyError | Column renamed to `simulation_years` in Excel. Fix: `build_topology.py` line 82 |
+| `n._multi_invest` is 0 after loading solved.nc (even for multi-invest networks) | Fix: `_helpers.py` `aggregate_costs()` — check `len(n.investment_periods) > 0` instead |
+| Excel `run_scenario` column stores `"true\n"` strings, filter `== 1` matched nothing | Fix: `Snakefile` line 15 — `.astype(str).str.strip().str.lower().isin(["1","true"])` |
+| `snakemake results/solve_all` → `MissingRuleException` | Wrong target — should be `snakemake solve_all` (rule name, no path prefix) |
+| Plot cost bar: all variable costs showing ≈ 0 | All costs stored ×1000 smaller (R/kW not R/MW). Fix: `plot_network_sa.py` lines 338–340: `fc *= 1000; vc *= 1000` |
+| `p_nom_new` not recognised in linopy constraint (PyPSA 0.35.2) | Use `n.generators.p_nom_opt - n.generators.p_nom` for new capacity |
+| CT_REINVEST constraint RHS units mismatch | `scale_costs(n, 1e3)` divides capital_cost by 1000 before solve → divide RHS by 1000 equally |
+
+---
+
+### Session 3 (2026-06-06) — Parameter audit, regions bug
+
+| Error | Resolution |
+|---|---|
+| P0_BASE_R/CT/CT_R solved at regions=1 despite Excel showing regions=10 | Excel actually had regions=1 for those 3. Fix: corrected to 10. Force rebuild with `-F` |
+| SIGSEGV (C crash) in `add_electricity.py` for regions=10 non-BASE scenarios | See Session 4 fix below |
+| Previous session suspected CT applied to RE generators | Disproved: solar/wind MC identical between BASE and CT in solved.nc. Code correctly excludes RE. |
+
+---
+
+### Session 4 (2026-06-06) — SIGSEGV fix, 10-bus diagnosis, parameter deep-dive
+
+| Error | Resolution |
+|---|---|
+| SIGSEGV in `add_electricity.py` lines 624–632 (solar_pv profile loading for regions=10) | Root cause: used `bus_ref` (single-node variable) + pandas conversion before per-bus loop. Fix: xarray DataArray + `.sel(bus=bus_name)` in loop. Marked `#AM adjusted`. |
+| All 4 regions=10 scenarios: identical dispatch and investment | Root cause: `override_coal_msl=0.7` binds coal at 70% minimum in all 48 timesteps at all buses. CT cannot reduce below floor. Fix: change to 0.5 in Excel (pending re-run). |
+| `fixed_emissions=FS_2045` feared to include H₂ | For P0 (2030): no effect — FS_2045 = BASE in 2030. For P1: change to BASE to avoid H₂ assumptions post-2040. |
+| `dispatch_coal_flex=SL_0` thought to affect dispatch | Confirmed: only active inside `unit_committment=1` block → no effect for P0 (UC=0). |

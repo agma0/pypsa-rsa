@@ -12,7 +12,9 @@ scenarios = pd.read_excel(
     sheet_name="scenario_definition", 
     index_col=0
 )
-scenarios_to_run = scenarios[(scenarios["run_scenario"]==1)]
+scenarios_to_run = scenarios[
+    scenarios["run_scenario"].astype(str).str.strip().str.lower().isin(["1", "true"])
+]
 
 
 ############################################################################################################
