@@ -231,13 +231,15 @@ Parameters are stored in `config.yaml` under `lines.hvac_overhead`.
 
 All modifications are marked `# AM added` or `# AM adjusted` in the source files.
 
-### 9.1 `custom_constraints.py` — `add_ct_reinvestment_constraint()`
+### 9.1 `custom_constraints.py` — CT Reinvestment Constraints
 
-New function implementing the revenue recycling constraint. PyPSA has no built-in mechanism for CT revenue recycling; the constraint is added as a custom linopy expression after the standard model build.
+Two functions implement CT revenue recycling, selected automatically based on number of investment periods.
+
+#### `add_ct_reinvestment_constraint()` — P0 (2 periods: 2025 + 2030)
 
 Logic:
 1. Load the reference base scenario solved network and its generator emissions CSV.
-2. Calculate 2030-only emissions: `energy[MWh] × emission_factor[kgCO₂/MWh] / 1000 = tCO₂`. Uses only the last investment period to avoid inflating the figure with 2025 emissions.
+2. Calculate 2030-only emissions: `energy[MWh] × emission_factor[kgCO₂/MWh] / 1000 = tCO₂`. Uses only the 2030 period — 2025 has CT rate = 0.
 3. Calculate CT revenues: `tCO₂ × 462 R/tCO₂`.
 4. Calculate baseline RE investment from the reference scenario (`p_nom_opt × capital_cost` for `build_year == 2030` RE generators).
 5. Build linopy LHS: `Σ(p_nom_new × capital_cost)` for `wind`, `wind_low`, `solar_pv`, `solar_pv_low` with `build_year == 2030`.
@@ -245,9 +247,37 @@ Logic:
 
 Including `base_RE_investment` on the RHS ensures the `_R` scenarios invest *above* the baseline, not merely equal to it.
 
+#### `add_ct_reinvestment_constraint_multiyear()` — P1 (7 periods: 2025–2050)
+
+Same logic as above but loops over **all investment periods**, adding one constraint per period. CT rates are read from `emissions.xlsx` sheet `carbon_tax`, scenario `CT_2050`:
+
+| Period | CT_2050 rate [R/tCO₂] |
+|--------|----------------------|
+| 2025   | 236                  |
+| 2029   | 424                  |
+| 2030   | 462                  |
+| 2035   | 894                  |
+| 2040   | 1326                 |
+| 2045   | 1757                 |
+| 2050   | 2189                 |
+
+For each period y:
+1. Look up CT_2050[y]. Skip if rate = 0.
+2. Calculate base scenario emissions in period y × CT_2050[y] = CT revenues[y].
+3. Get base scenario RE investment with `build_year == y`.
+4. Add constraint: `Σ(p_nom[build_year==y] × capital_cost) ≥ base_RE[y] + CT_revenues[y]`.
+
+Only generators with `build_year == y` count — capacity built in earlier periods is not double-counted. Named `ct_reinvestment_{y}` in the linopy model.
+
 ### 9.2 `prepare_and_solve_network.py`
 
-**CT reinvestment hook:** `add_ct_reinvestment_constraint` is called outside the `unit_committment` block so it applies to all P0 scenarios (UC=0).
+**CT reinvestment hook:** Called outside the `unit_committment` block. Function selection is automatic:
+```python
+if len(n.investment_periods) <= 2:
+    add_ct_reinvestment_constraint(...)       # P0: 2030 only, 462 R/t
+else:
+    add_ct_reinvestment_constraint_multiyear(...)  # P1: all periods, CT_2050 trajectory
+```
 
 **`n.statistics()` workaround:** Wrapped in try/except to handle a bug in PyPSA 0.35.2 where `statistics()` raises on certain network configurations.
 

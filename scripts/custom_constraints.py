@@ -256,8 +256,12 @@ def check_active(n, c, y, list):
 def reserve_margin_constraints(n, sns, scenario_setup, snakemake):
     ###################################################################################
     # Reserve margin above maximum peak demand in each year
-    # The sum of res_margin_carriers multiplied by their assumed constribution factors 
+    # The sum of res_margin_carriers multiplied by their assumed constribution factors
     # must be higher than the maximum peak demand in each year by the reserve_margin value
+
+    # AM added: allow reserve_margin = none to skip constraint entirely
+    if str(scenario_setup.get("reserve_margin", "none")).strip().lower() in ["none", "0", "false", ""]:
+        return
 
     endogenous_decom_start_year = snakemake.config["electricity"]["conventional_generators"]["endogenous_decomssioning_start_year"]
     decom_periods = n.investment_periods[n.investment_periods >= endogenous_decom_start_year]
@@ -445,4 +449,92 @@ def add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake):
         f"CT {ct_revenues/1e9:.2f} bn ZAR "
         f"({len(add_gens)} extendable RE generators)"
     )
+
+
+def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
+    """
+    Multi-period CT revenue recycling constraint (Paper 1).
+
+    For each investment period y, reads base scenario emissions in period y,
+    looks up the CT_2050 rate for year y, and enforces:
+        annualized RE investment (build_year==y) >= base_RE_investment[y] + CT_revenues[y]
+
+    Constraint is skipped for periods where CT_2050 rate == 0.
+    Must be called after scale_costs(n, 1e3).
+    """
+    reinvest_carriers = ['wind', 'wind_low', 'solar_pv', 'solar_pv_low']
+
+    # Load CT_2050 rate trajectory from emissions.xlsx
+    working_folder = snakemake.config["scenarios"]["working_folder"]
+    emis_xlsx = os.path.join("scenarios", working_folder, "sub_scenarios", "emissions.xlsx")
+    ct_raw = pd.read_excel(emis_xlsx, sheet_name="carbon_tax", index_col=0)
+    ct_row = ct_raw.loc["CT_2050"].drop("units").dropna()
+    ct_row.index = ct_row.index.astype(int)  # year → R/tCO2
+
+    # Base scenario paths
+    base_scenario  = SCENARIO_SETUP.name.replace("_R", "")
+    base_net_path  = os.path.join("results", working_folder, base_scenario, "networks", "solved.nc")
+    base_emis_path = os.path.join("results", working_folder, base_scenario, "outputs", "generator_emissions.csv")
+
+    n_base = pypsa.Network(base_net_path)
+    gen_emissions = pd.read_csv(base_emis_path, index_col=0)
+    gen_emissions.index = gen_emissions.index.astype(int)
+
+    # Weighted annual generation per generator per period [MWh]
+    w = n_base.snapshot_weightings["generators"]
+    gen_p_annual = n_base.generators_t.p.mul(w, axis=0).groupby(level=0).sum()
+
+    for y in n.investment_periods:
+        ct_rate = ct_row.get(y, 0)
+        if ct_rate == 0:
+            logger.info(f"CT reinvestment multiyear [{SCENARIO_SETUP.name}]: period {y} — rate=0, skipping")
+            continue
+
+        if y not in gen_p_annual.index:
+            logger.warning(f"CT reinvestment multiyear [{SCENARIO_SETUP.name}]: period {y} not in base generation, skipping")
+            continue
+
+        gen_p_y     = gen_p_annual.loc[y]
+        common      = gen_emissions.columns.intersection(gen_p_y.index)
+        ef_y        = gen_emissions.loc[y, common] if y in gen_emissions.index else gen_emissions.iloc[-1][common]
+        emissions_t = (gen_p_y[common] * ef_y).sum() / 1000  # tCO2
+        ct_revenues = ct_rate * emissions_t                    # R
+
+        # Base scenario: annualised RE investment built in period y
+        base_re = n_base.generators.query(
+            "carrier in @reinvest_carriers and build_year == @y and p_nom_extendable"
+        )
+        base_re_investment = (base_re.p_nom_opt * base_re.capital_cost).sum()  # kZAR/yr
+
+        logger.info(
+            f"CT reinvestment multiyear [{SCENARIO_SETUP.name}] {y}: "
+            f"{emissions_t/1e6:.2f} MtCO2 × {ct_rate} R/t = {ct_revenues/1e9:.2f} bn ZAR"
+        )
+
+        # _R scenario: extendable RE built in period y
+        add_gens = n.generators.query(
+            "carrier in @reinvest_carriers and build_year == @y and p_nom_extendable"
+        )
+        if add_gens.empty:
+            logger.warning(
+                f"CT reinvestment multiyear [{SCENARIO_SETUP.name}] {y}: "
+                "no extendable RE generators found — skipping this period."
+            )
+            continue
+
+        p_nom = n.model.variables["Generator-p_nom"].sel({"Generator-ext": add_gens.index})
+        costs = xr.DataArray(
+            add_gens["capital_cost"].values,
+            dims=["Generator-ext"],
+            coords={"Generator-ext": add_gens.index.values}
+        )
+        lhs = (p_nom * costs).sum("Generator-ext")
+        rhs = base_re_investment + ct_revenues / 1e3  # both in kZAR
+
+        n.model.add_constraints(lhs >= rhs, name=f"ct_reinvestment_{y}")
+
+        logger.info(
+            f"CT reinvestment_{y} added: RE invest >= {base_re_investment/1e6:.2f} "
+            f"+ {ct_revenues/1e9:.2f} bn ZAR ({len(add_gens)} generators)"
+        )
 # AM added -----------------------------------------------------------------------
