@@ -1,6 +1,6 @@
 # Model Documentation: PyPSA-RSA Carbon Tax Analysis (Paper 0)
 
-*Last updated: 2026-06-07*
+*Last updated: 2026-06-08*
 
 ---
 
@@ -263,13 +263,20 @@ Same logic as above but loops over **all investment periods**, adding one constr
 For each period y:
 1. Look up CT_2050[y]. Skip if rate = 0.
 2. Use annual generation directly: `snapshot_weightings["generators"]` sums to ~8760 h per period (verified empirically), so `gen_p_annual.loc[y]` is already annual MWh — **no years_in_period division**.
-3. Calculate annual CT revenues: `annual_emissions_t [tCO₂/yr] × CT_2050[y] [R/tCO₂]`. This is 100% of annual revenues.
-4. Get base scenario annual RE investment with `build_year == y`.
-5. Add constraint: `Σ(p_nom[build_year==y] × capital_cost) ≥ base_annual_RE[y] + annual_CT_revenues[y]`.
+3. Calculate annual CT revenues: `annual_emissions_t [tCO₂/yr] × CT_2050[y] [R/tCO₂] × REINVEST_FRACTION`. `REINVEST_FRACTION = 0.5` — 50% reinvested in clean energy, 50% represents other government spending (social transfers, budget).
+4. Get base scenario annual investment (RE generators + batteries) with `build_year == y`.
+5. Add constraint: `Σ(p_nom_RE × capex) + Σ(p_nom_bat × capex) ≥ base_investment[y] + CT_revenues[y]`.
+
+**Reinvestment pool** (LHS carriers):
+- RE generators: `wind`, `wind_low`, `solar_pv`, `solar_pv_low`
+- Batteries: `battery_1h`, `battery_4h`, `battery_8h`
+- PHS excluded: resource-constrained and decade-long lead times in SA — not a realistic near-term CT reinvestment target.
 
 Both LHS (annualised capex [kZAR/yr]) and RHS (annual CT revenues [kZAR/yr]) are on the same annual basis.
 
-Only generators with `build_year == y` count. Named `ct_reinvestment_{y}` in the linopy model.
+Only components with `build_year == y` count. Named `ct_reinvestment_{y}` in the linopy model.
+
+**Observed behaviour:** Constraint is binding in all periods — the optimizer invests exactly the floor, no more. Additional investment over BASE: 25–112 bn ZAR/yr per period. Storage share 30–63% of reinvested funds depending on period (optimizer substitutes batteries for solar once solar saturates).
 
 **5-year step approximation — direction of bias:**  
 The representative dispatch snapshot for each period (e.g. 2030 represents 2026–2030) introduces two offsetting biases:
@@ -512,7 +519,34 @@ No transmission expansion in any scenario (p_nom_opt ≈ p_nom_min + numerical n
 
 ---
 
-## 12. Key Configuration Decisions
+## 12. Known Model Limitations (P1 Pathway Scenarios)
+
+### 12.1 No mandatory coal retirement after 2035
+
+P1 scenarios use `phased_decom = DELAYED_ESKOM_2035`: coal retirements are fixed/exogenous and end in 2035. After that, the remaining fleet stays available indefinitely. Coal is only displaced if dispatch economics (or CT) make it uncompetitive. This means:
+- Residual coal in 2050 across all scenarios (no forced phase-out)
+- Emissions in 2045–2050 remain 80–102 MtCO₂/yr in P1_BASE despite 84–90% RE share
+- CT effect on coal retirement is endogenous only — CT raises coal dispatch cost but doesn't force physical retirement
+
+### 12.2 1-bus model dilutes CT dispatch signal
+
+P1 uses `regions=1` (single aggregate node). Without transmission bottlenecks, RE always reaches demand and coal competes directly with RE on marginal cost. The CT dispatch channel (merit-order reshuffling) is present but less differentiated than in a 10-bus model. P1_CT and P1_BASE show near-identical emissions — the investment and recycling channels dominate in the results.
+
+For final paper: 10-bus P1 runs needed to capture the spatial dispatch CT signal.
+
+### 12.3 PHS extendability
+
+New PHS units (`RSA-phs-{year}`) are extendable with no upper bound. In the current model setup, PHS builds 1.7–3.0 GW in 2040–2050 even in BASE/CT (without recycling). SA's PHS resource is limited (few suitable sites) and development timelines are 10+ years. This should be reviewed — either cap via `extendable_max_total` or remove PHS extendability entirely.
+
+PHS is excluded from the CT reinvestment pool (constraint covers batteries only).
+
+### 12.4 Reinvestment constraint is always binding
+
+The optimizer never invests beyond the reinvestment floor — it treats the constraint as an exact target, not a minimum. This means the _R scenarios are not truly "cost-optimal with reinvestment budget" but rather "cost-optimal subject to a forced minimum spend." The actual cost-optimal outcome under a reinvestment budget would require a different formulation (e.g. budget cap instead of floor, or endogenous CT revenue calculation).
+
+---
+
+## 13. Key Configuration Decisions
 
 | Parameter | Value | Rationale |
 |---|---|---|
@@ -526,7 +560,7 @@ No transmission expansion in any scenario (p_nom_opt ≈ p_nom_min + numerical n
 
 ---
 
-## 13. Run Instructions
+## 14. Run Instructions
 
 ```bash
 # All scenarios (force rebuild):
