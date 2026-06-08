@@ -629,8 +629,8 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
             curtail_rows[y] = 0.0
     curtail_s = pd.Series(curtail_rows)
 
-    # ── 7. Battery storage: power [GW] by type + energy [GWh] ─────────────────
-    bat_carriers_raw = {"battery_1h", "battery_4h", "battery_8h"}
+    # ── 7. Storage (battery + PHS): power [GW] by type + energy [GWh] ───────────
+    stor_carriers_raw = {"battery_1h", "battery_4h", "battery_8h", "phs"}
     bat_hours_map = {"battery_1h": 1, "battery_4h": 4, "battery_8h": 8}
     stor_by_type_rows = {}  # {y: {carrier: GW}}
     stor_energy_rows  = {}  # {y: GWh}
@@ -644,15 +644,16 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
                 active_su = su[
                     (su.build_year <= y)
                     & (su.build_year + su.lifetime > y)
-                    & su.carrier.isin(bat_carriers_raw)
+                    & su.carrier.isin(stor_carriers_raw)
                 ]
             else:
-                active_su = su[su.carrier.isin(bat_carriers_raw)]
+                active_su = su[su.carrier.isin(stor_carriers_raw)]
             for c, grp in active_su.groupby("carrier"):
                 gw = grp["p_nom_opt"].sum() / 1e3
                 by_type[c] = by_type.get(c, 0.0) + gw
                 energy += (grp["p_nom_opt"] * grp["max_hours"]).sum() / 1e3  # GWh
         # also catch batteries modelled as generators
+        bat_carriers_raw = {"battery_1h", "battery_4h", "battery_8h"}
         gen_active = (
             (n.generators.build_year <= y)
             & (n.generators.build_year + n.generators.lifetime > y)
@@ -775,11 +776,11 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     h2, l2 = ax_coal2.get_legend_handles_labels()
     ax_coal.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper center", ncol=2)
 
-    # Panel 7: battery storage — stacked power [GW] by type + energy [GWh] line
-    bat_order = ["battery_1h", "battery_4h", "battery_8h"]
+    # Panel 7: storage (battery + PHS) — stacked power [GW] by type + energy [GWh] line
+    stor_order = ["phs", "battery_1h", "battery_4h", "battery_8h"]
     bottom_stor = np.zeros(len(periods))
     has_stor = False
-    for c in bat_order:
+    for c in stor_order:
         if c not in stor_by_type_df.columns or stor_by_type_df[c].sum() < 0.001:
             continue
         vals = stor_by_type_df[c].reindex(periods).fillna(0).values
@@ -789,14 +790,18 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
         bottom_stor += vals
         has_stor = True
     if not has_stor:
-        # fallback: total battery from cap_df if individual types not resolved
-        bat_total = cap_df.get("battery", pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0)
-        ax_stor.bar(x, bat_total.values, width=bw,
-                    color=tech_colors.get("battery", "#7ac677"), label="Battery")
+        # fallback: grouped totals from cap_df
+        for c in ["phs", "battery"]:
+            vals = cap_df.get(c, pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0).values
+            if vals.sum() < 0.001:
+                continue
+            ax_stor.bar(x, vals, bottom=bottom_stor, width=bw,
+                        color=tech_colors.get(c, "#7ac677"), label=nice_names.get(c, c))
+            bottom_stor += vals
     ax_stor.set_xlim(xlim)
     ax_stor.set_xticks(x); ax_stor.set_xticklabels(periods, rotation=45)
-    ax_stor.set_ylabel("Battery Power [GW]")
-    ax_stor.set_title("Battery Storage")
+    ax_stor.set_ylabel("Storage Power [GW]")
+    ax_stor.set_title("Storage (Battery & PHS)")
     ax_stor2 = ax_stor.twinx()
     ax_stor2.plot(x, stor_energy_s.reindex(periods).fillna(0).values,
                   color="#c0392b", marker="^", linewidth=2, linestyle="--", label="Energy [GWh]")

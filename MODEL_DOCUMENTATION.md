@@ -790,12 +790,25 @@ The `_R` scenarios depend on their base scenario (P0_BASE_R needs P0_BASE), so w
 cd /beegfs/scratch/agma/pypsa-rsa
 sbatch run_head.job
 ```
+08.06.2026 - Submitted batch job 1696399
+
 
 **Monitor:**
 ```bash
 squeue --me                          # shows head job + all child solve jobs
 tail -f logs/slurm_head_<JOBID>.out  # Snakemake progress log
 ```
+
+tail -f logs/slurm_head_1696399.out 
+
+
+
+(pypsa-rsa) agma@frontend02:/beegfs/scratch/agma/pypsa-rsa$ squeue --me 
+             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+           1696399  standard pypsa_he     agma  R       0:53      1 node166
+(pypsa-rsa) agma@frontend02:/beegfs/scratch/agma/pypsa-rsa$ 
+
+
 
 **Cancel everything** (head job + all child jobs):
 ```bash
