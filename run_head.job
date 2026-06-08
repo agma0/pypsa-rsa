@@ -2,7 +2,7 @@
 #SBATCH --job-name=pypsa_head
 #SBATCH --output=logs/slurm_head_%j.out
 #SBATCH --partition=standard
-#SBATCH --account=ensys
+#SBATCH --constraint=wrh
 #SBATCH --time=14-00:00:00
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=2
@@ -22,11 +22,12 @@ $MAMBA_EXE run --root-prefix $MAMBA_ROOT -p $PYPSA_ENV \
     snakemake solve_all \
     --executor slurm \
     --default-resources \
-        "slurm_account=ensys" \
         "slurm_partition=standard" \
+        "slurm_extra='--constraint=wrh'" \
         "mem_mb=16000" \
         "cpus_per_task=4" \
         "runtime=120" \
     --jobs 16 \
     --latency-wait 120 \
-    --rerun-incomplete
+    --rerun-incomplete \
+    -F
