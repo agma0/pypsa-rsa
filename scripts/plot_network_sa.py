@@ -507,10 +507,12 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
 
 ##########
 
-def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
-    """6-panel pathway plot: capacity, generation, costs, CO2, emissions intensity, coal+curtailment."""
+def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None):
+    """8-panel pathway plot: capacity, generation, cost-by-carrier, CO2,
+    emissions intensity, fossil+curtailment, battery storage, newbuild+CT revenue."""
     tech_colors = opts["tech_colors"]
     nice_names  = opts.get("nice_names", {})
+    REINVEST_FRACTION = 0.5
 
     periods = list(n.investment_periods) if (n.multi_invest and len(n.investment_periods) > 0) \
               else [int(str(n.snapshots[0])[:4])]
@@ -545,24 +547,29 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
                .T.groupby(level=0).sum().T / 1e6)       # TWh
     gen_df = gen_df.reindex(periods).fillna(0)
 
-    # ── 3. System costs [bn ZAR/a] per period ──────────────────────────────────
-    fc_list, vc_list = [], []
+    # ── 3. System costs by carrier [bn ZAR/a] per period ──────────────────────
+    cost_carrier_rows = {}
     for y in periods:
-        active = (
+        active_mask = (
             (n.generators.build_year <= y)
             & (n.generators.build_year + n.generators.lifetime > y)
             & (~n.generators.carrier.isin(["load_shedding"]))
         )
-        gy = n.generators[active]
-        fc = (gy["capital_cost"] * gy["p_nom_opt"]).sum() * 1000 / 1e9   # bn ZAR/a
+        gy = n.generators[active_mask].copy()
+        gy["dc"] = gy["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
+        gy = gy[~gy["dc"].isin(CARRIER_DROP)]
+        # capital: R/kW × MW × 1000 kW/MW / 1e9 = bn ZAR/a
+        fc_per = (gy["capital_cost"] * gy["p_nom_opt"] * 1000).groupby(gy["dc"]).sum() / 1e9
         if y in ef.index:
-            common = ef.columns.intersection(n.generators.index)
-            vc = (ef.loc[y, common] * n.generators.loc[common, "marginal_cost"]).sum() * 1000 / 1e9
+            common_y = ef.columns.intersection(gy.index)
+            dc_map = n.generators.loc[common_y, "carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
+            # marginal: R/kWh × MWh × 1000 kWh/MWh / 1e9 = bn ZAR/a
+            vc_per = (ef.loc[y, common_y] * n.generators.loc[common_y, "marginal_cost"] * 1000
+                      ).groupby(dc_map).sum() / 1e9
         else:
-            vc = 0.0
-        fc_list.append(fc)
-        vc_list.append(vc)
-    cost_df = pd.DataFrame({"Capital": fc_list, "Marginal": vc_list}, index=pd.Index(periods))
+            vc_per = pd.Series(dtype=float)
+        cost_carrier_rows[y] = fc_per.add(vc_per, fill_value=0)
+    cost_carrier_df = pd.DataFrame(cost_carrier_rows).T.fillna(0)
 
     # ── 4. CO₂ [MtCO₂/a] per period ───────────────────────────────────────────
     co2_s = pd.Series(0.0, index=pd.Index(periods))
@@ -578,9 +585,7 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
     total_gen_twh = gen_df.sum(axis=1)
     ei_s = (co2_s * 1000 / total_gen_twh.replace(0, np.nan)).fillna(0)
 
-    # ── 6. Coal capacity [GW] + RE curtailment [TWh/a] ────────────────────────
-    coal_cap_s = cap_df.get("coal", pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0)
-
+    # ── 6. Fossil capacity [GW] + RE curtailment [TWh/a] ──────────────────────
     re_raw = {"solar_pv", "solar_pv_low", "solar_pv_rooftop", "wind", "wind_low", "solar_csp"}
     curtail_rows = {}
     for y in periods:
@@ -597,13 +602,11 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
             p_nom = n.generators.loc[re_idx, "p_nom_opt"]
             w = (n.snapshot_weightings.generators.loc[y] if n.multi_invest
                  else n.snapshot_weightings.generators)
-
             if n.multi_invest:
                 p_act = n.generators_t.p.loc[y].reindex(columns=re_idx, fill_value=0)
             else:
                 p_act = n.generators_t.p.reindex(columns=re_idx, fill_value=0)
             act_twh = p_act.multiply(w, axis=0).sum().sum() / 1e6
-
             t_pmu = n.generators_t.p_max_pu
             if not t_pmu.empty and n.multi_invest:
                 pmu_y = (t_pmu.loc[y]
@@ -612,7 +615,6 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
                 pmu_y = t_pmu
             else:
                 pmu_y = pd.DataFrame()
-
             common_re = re_idx.intersection(pmu_y.columns) if not pmu_y.empty else pd.Index([])
             avail_twh = 0.0
             if len(common_re) > 0:
@@ -627,52 +629,124 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
             curtail_rows[y] = 0.0
     curtail_s = pd.Series(curtail_rows)
 
+    # ── 7. Battery storage: power [GW] by type + energy [GWh] ─────────────────
+    bat_carriers_raw = {"battery_1h", "battery_4h", "battery_8h"}
+    bat_hours_map = {"battery_1h": 1, "battery_4h": 4, "battery_8h": 8}
+    stor_by_type_rows = {}  # {y: {carrier: GW}}
+    stor_energy_rows  = {}  # {y: GWh}
+
+    for y in periods:
+        by_type = {}
+        energy = 0.0
+        if not n.storage_units.empty:
+            su = n.storage_units
+            if "build_year" in su.columns and "lifetime" in su.columns:
+                active_su = su[
+                    (su.build_year <= y)
+                    & (su.build_year + su.lifetime > y)
+                    & su.carrier.isin(bat_carriers_raw)
+                ]
+            else:
+                active_su = su[su.carrier.isin(bat_carriers_raw)]
+            for c, grp in active_su.groupby("carrier"):
+                gw = grp["p_nom_opt"].sum() / 1e3
+                by_type[c] = by_type.get(c, 0.0) + gw
+                energy += (grp["p_nom_opt"] * grp["max_hours"]).sum() / 1e3  # GWh
+        # also catch batteries modelled as generators
+        gen_active = (
+            (n.generators.build_year <= y)
+            & (n.generators.build_year + n.generators.lifetime > y)
+            & n.generators.carrier.isin(bat_carriers_raw)
+        )
+        for c, grp in n.generators[gen_active].groupby("carrier"):
+            gw = grp["p_nom_opt"].sum() / 1e3
+            by_type[c] = by_type.get(c, 0.0) + gw
+            energy += gw * bat_hours_map.get(c, 4)
+        stor_by_type_rows[y] = by_type
+        stor_energy_rows[y]  = energy
+
+    stor_by_type_df = pd.DataFrame(stor_by_type_rows).T.fillna(0)
+    stor_energy_s   = pd.Series(stor_energy_rows)
+
+    # ── 8. New build per period [GW] by carrier + CT revenue [bn ZAR/a] ────────
+    newbuild_rows = {}
+    for y in periods:
+        nb = {}
+        # generators
+        new_g = n.generators[
+            (n.generators.build_year == y)
+            & n.generators.p_nom_extendable
+            & (~n.generators.carrier.isin(["load_shedding"]))
+        ].copy()
+        new_g["dc"] = new_g["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
+        new_g = new_g[~new_g["dc"].isin(CARRIER_DROP)]
+        for dc, grp in new_g.groupby("dc"):
+            nb[dc] = nb.get(dc, 0.0) + grp["p_nom_opt"].sum() / 1e3
+        # storage_units
+        if not n.storage_units.empty and "build_year" in n.storage_units.columns:
+            new_su = n.storage_units[
+                (n.storage_units.build_year == y)
+                & n.storage_units.p_nom_extendable
+            ].copy()
+            new_su["dc"] = new_su["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
+            for dc, grp in new_su.groupby("dc"):
+                nb[dc] = nb.get(dc, 0.0) + grp["p_nom_opt"].sum() / 1e3
+        newbuild_rows[y] = nb
+    newbuild_df = pd.DataFrame(newbuild_rows).T.fillna(0)
+
+    ct_rev_list, reinvest_list = [], []
+    for y in periods:
+        if isinstance(ct_rates, dict):
+            rate = ct_rates.get(y, 0.0)
+        else:
+            rate = float(ct_rates) if ct_rates is not None else 0.0
+        rev = co2_s.get(y, 0.0) * 1e6 * rate / 1e9  # MtCO2 × t/Mt × R/t / bn = bn ZAR/a
+        ct_rev_list.append(rev)
+        reinvest_list.append(rev * REINVEST_FRACTION)
+    ct_rev_s   = pd.Series(ct_rev_list, index=pd.Index(periods))
+    reinvest_s = pd.Series(reinvest_list, index=pd.Index(periods))
+
     # ── PLOT ───────────────────────────────────────────────────────────────────
-    fig, axes = plt.subplots(3, 2, figsize=(14, 13))
+    fig, axes = plt.subplots(4, 2, figsize=(14, 18))
     fig.suptitle(scenario_name, fontsize=13, fontweight="bold")
     ax_cap,  ax_gen  = axes[0, 0], axes[0, 1]
     ax_cost, ax_co2  = axes[1, 0], axes[1, 1]
     ax_ei,   ax_coal = axes[2, 0], axes[2, 1]
-    x = np.arange(len(periods))
-    bw = 0.65
-
+    ax_stor, ax_new  = axes[3, 0], axes[3, 1]
+    x   = np.arange(len(periods))
+    bw  = 0.65
     xlim = (-0.5, len(periods) - 0.5)
 
     def stacked_bars(ax, df, ylabel, title):
         order = [c for c in CARRIER_ORDER if c in df.columns]
         order += [c for c in df.columns if c not in CARRIER_ORDER]
         bottom = np.zeros(len(periods))
-        handles = []
         for c in order:
             if c not in tech_colors or df[c].sum() < 0.01:
                 continue
             vals = df[c].values
-            bar = ax.bar(x, vals, bottom=bottom, width=bw,
-                         color=tech_colors[c], label=nice_names.get(c, c))
-            handles.append(bar)
+            ax.bar(x, vals, bottom=bottom, width=bw,
+                   color=tech_colors[c], label=nice_names.get(c, c))
             bottom += vals
         ax.set_xlim(xlim)
         ax.set_xticks(x); ax.set_xticklabels(periods, rotation=45)
         ax.set_ylabel(ylabel); ax.set_title(title)
         ax.legend(loc="upper left", fontsize=7, ncol=2)
 
-    stacked_bars(ax_cap, cap_df, "Installed Capacity [GW]", "Capacity")
-    stacked_bars(ax_gen, gen_df, "Generation [TWh/a]",      "Generation")
+    # Panels 1–2: capacity & generation (unchanged)
+    stacked_bars(ax_cap, cap_df,  "Installed Capacity [GW]", "Capacity")
+    stacked_bars(ax_gen, gen_df,  "Generation [TWh/a]",      "Generation")
 
-    ax_cost.bar(x, cost_df["Capital"].values, width=bw, color="#1f77b4", label="Capital")
-    ax_cost.bar(x, cost_df["Marginal"].values, width=bw,
-                bottom=cost_df["Capital"].values, color="#ff7f0e", label="Marginal")
-    ax_cost.set_xlim(xlim)
-    ax_cost.set_xticks(x); ax_cost.set_xticklabels(periods, rotation=45)
-    ax_cost.set_ylabel("System Cost [bn ZAR/a]"); ax_cost.set_title("System Costs")
-    ax_cost.legend(fontsize=8, loc="upper left")
+    # Panel 3: system cost stacked by carrier
+    stacked_bars(ax_cost, cost_carrier_df, "System Cost [bn ZAR/a]", "System Cost by Carrier")
 
+    # Panel 4: CO₂
     ax_co2.bar(x, co2_s.values, width=bw, color="#555555")
     ax_co2.set_xlim(xlim)
     ax_co2.set_xticks(x); ax_co2.set_xticklabels(periods, rotation=45)
     ax_co2.set_ylabel("CO₂ Emissions [MtCO₂/a]"); ax_co2.set_title("CO₂ Emissions")
 
-    # Panel 5 — Emissions intensity
+    # Panel 5: emissions intensity
     ax_ei.plot(x, ei_s.values, color="#e74c3c", marker="o", linewidth=2)
     ax_ei.set_xlim(xlim)
     ax_ei.set_xticks(x); ax_ei.set_xticklabels(periods, rotation=45)
@@ -680,19 +754,18 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
     ax_ei.set_title("Emissions Intensity")
     ax_ei.set_ylim(bottom=0)
 
-    # Panel 6 — Coal + gas capacity (stacked bars, left axis) + RE curtailment (line, right axis)
+    # Panel 6: fossil capacity + RE curtailment
     fossil_carriers = [("coal", "Coal"), ("ccgt_steam", "CCGT"), ("ocgt", "OCGT/Gas")]
     bottom_fossil = np.zeros(len(periods))
     for carrier, label in fossil_carriers:
         vals = cap_df.get(carrier, pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0).values
-        color = tech_colors.get(carrier, "#bbbbbb")
-        ax_coal.bar(x, vals, bottom=bottom_fossil, width=bw, color=color, alpha=0.85, label=label)
+        ax_coal.bar(x, vals, bottom=bottom_fossil, width=bw,
+                    color=tech_colors.get(carrier, "#bbbbbb"), alpha=0.85, label=label)
         bottom_fossil += vals
     ax_coal.set_xlim(xlim)
     ax_coal.set_ylabel("Fossil Capacity [GW]")
     ax_coal.set_title("Fossil Capacity & RE Curtailment")
     ax_coal.set_xticks(x); ax_coal.set_xticklabels(periods, rotation=45)
-
     ax_coal2 = ax_coal.twinx()
     ax_coal2.plot(x, curtail_s.reindex(periods).fillna(0).values,
                   color="#e67e22", marker="s", linewidth=2, label="RE curtailment")
@@ -701,6 +774,57 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
     h1, l1 = ax_coal.get_legend_handles_labels()
     h2, l2 = ax_coal2.get_legend_handles_labels()
     ax_coal.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper center", ncol=2)
+
+    # Panel 7: battery storage — stacked power [GW] by type + energy [GWh] line
+    bat_order = ["battery_1h", "battery_4h", "battery_8h"]
+    bottom_stor = np.zeros(len(periods))
+    has_stor = False
+    for c in bat_order:
+        if c not in stor_by_type_df.columns or stor_by_type_df[c].sum() < 0.001:
+            continue
+        vals = stor_by_type_df[c].reindex(periods).fillna(0).values
+        ax_stor.bar(x, vals, bottom=bottom_stor, width=bw,
+                    color=tech_colors.get(c, "#7ac677"),
+                    label=nice_names.get(c, c))
+        bottom_stor += vals
+        has_stor = True
+    if not has_stor:
+        # fallback: total battery from cap_df if individual types not resolved
+        bat_total = cap_df.get("battery", pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0)
+        ax_stor.bar(x, bat_total.values, width=bw,
+                    color=tech_colors.get("battery", "#7ac677"), label="Battery")
+    ax_stor.set_xlim(xlim)
+    ax_stor.set_xticks(x); ax_stor.set_xticklabels(periods, rotation=45)
+    ax_stor.set_ylabel("Battery Power [GW]")
+    ax_stor.set_title("Battery Storage")
+    ax_stor2 = ax_stor.twinx()
+    ax_stor2.plot(x, stor_energy_s.reindex(periods).fillna(0).values,
+                  color="#c0392b", marker="^", linewidth=2, linestyle="--", label="Energy [GWh]")
+    ax_stor2.set_ylabel("Battery Energy [GWh]", color="#c0392b")
+    ax_stor2.tick_params(axis="y", labelcolor="#c0392b")
+    h1, l1 = ax_stor.get_legend_handles_labels()
+    h2, l2 = ax_stor2.get_legend_handles_labels()
+    ax_stor.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper left", ncol=2)
+
+    # Panel 8: new build per period [GW] + CT revenue lines
+    stacked_bars(ax_new, newbuild_df, "New Build [GW]", "New Build per Period & CT Revenue")
+    ax_new2 = ax_new.twinx()
+    if ct_rev_s.sum() > 0:
+        ax_new2.plot(x, ct_rev_s.values, color="#8e44ad", marker="o",
+                     linewidth=2, label="CT Revenue")
+        ax_new2.plot(x, reinvest_s.values, color="#8e44ad", marker="o",
+                     linewidth=2, linestyle="--",
+                     label=f"Reinvested ({int(REINVEST_FRACTION * 100)}%)")
+        ax_new2.set_ylabel("CT Revenue [bn ZAR/a]", color="#8e44ad")
+        ax_new2.tick_params(axis="y", labelcolor="#8e44ad")
+        ax_new2.annotate(
+            f"50% of CT revenues reinvested in RE + storage",
+            xy=(0.98, 0.02), xycoords="axes fraction",
+            ha="right", va="bottom", fontsize=7, color="#8e44ad", style="italic",
+        )
+        h1, l1 = ax_new.get_legend_handles_labels()
+        h2, l2 = ax_new2.get_legend_handles_labels()
+        ax_new.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left", ncol=2)
 
     fig.tight_layout()
     return fig
@@ -767,10 +891,20 @@ if __name__ == "__main__":
 
     fig.savefig(snakemake.output.ext, transparent=True, bbox_inches='tight')
 
+    scenario = snakemake.wildcards.scenario
+    ct_rates = None
+    if "CT" in scenario:
+        base_rate = config["plotting"].get("carbon_tax_rate_2030", 462)
+        inv_periods_plot = (list(n.investment_periods)
+                            if (n.multi_invest and len(n.investment_periods) > 0)
+                            else [int(str(n.snapshots[0])[:4])])
+        ct_rates = {y: base_rate for y in inv_periods_plot}
+
     fig_pathway = plot_pathway(
         n, config["plotting"],
         gen_emissions_df=gen_em,
-        scenario_name=snakemake.wildcards.scenario,
+        scenario_name=scenario,
+        ct_rates=ct_rates,
     )
     fig_pathway.savefig(snakemake.output.pathway, dpi=150, bbox_inches="tight")
     plt.close(fig_pathway)
