@@ -636,6 +636,8 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
     x = np.arange(len(periods))
     bw = 0.65
 
+    xlim = (-0.5, len(periods) - 0.5)
+
     def stacked_bars(ax, df, ylabel, title):
         order = [c for c in CARRIER_ORDER if c in df.columns]
         order += [c for c in df.columns if c not in CARRIER_ORDER]
@@ -649,6 +651,7 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
                          color=tech_colors[c], label=nice_names.get(c, c))
             handles.append(bar)
             bottom += vals
+        ax.set_xlim(xlim)
         ax.set_xticks(x); ax.set_xticklabels(periods, rotation=45)
         ax.set_ylabel(ylabel); ax.set_title(title)
         ax.legend(loc="upper left", fontsize=7, ncol=2)
@@ -659,26 +662,35 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
     ax_cost.bar(x, cost_df["Capital"].values, width=bw, color="#1f77b4", label="Capital")
     ax_cost.bar(x, cost_df["Marginal"].values, width=bw,
                 bottom=cost_df["Capital"].values, color="#ff7f0e", label="Marginal")
+    ax_cost.set_xlim(xlim)
     ax_cost.set_xticks(x); ax_cost.set_xticklabels(periods, rotation=45)
     ax_cost.set_ylabel("System Cost [bn ZAR/a]"); ax_cost.set_title("System Costs")
-    ax_cost.legend(fontsize=8)
+    ax_cost.legend(fontsize=8, loc="upper left")
 
     ax_co2.bar(x, co2_s.values, width=bw, color="#555555")
+    ax_co2.set_xlim(xlim)
     ax_co2.set_xticks(x); ax_co2.set_xticklabels(periods, rotation=45)
     ax_co2.set_ylabel("CO₂ Emissions [MtCO₂/a]"); ax_co2.set_title("CO₂ Emissions")
 
     # Panel 5 — Emissions intensity
     ax_ei.plot(x, ei_s.values, color="#e74c3c", marker="o", linewidth=2)
+    ax_ei.set_xlim(xlim)
     ax_ei.set_xticks(x); ax_ei.set_xticklabels(periods, rotation=45)
     ax_ei.set_ylabel("Emissions Intensity [tCO₂/MWh]")
     ax_ei.set_title("Emissions Intensity")
     ax_ei.set_ylim(bottom=0)
 
-    # Panel 6 — Coal capacity (bars, left axis) + RE curtailment (line, right axis)
-    coal_color = tech_colors.get("coal", "#333333")
-    ax_coal.bar(x, coal_cap_s.values, width=bw, color=coal_color, alpha=0.8, label="Coal capacity")
-    ax_coal.set_ylabel("Coal Capacity [GW]")
-    ax_coal.set_title("Coal Capacity & RE Curtailment")
+    # Panel 6 — Coal + gas capacity (stacked bars, left axis) + RE curtailment (line, right axis)
+    fossil_carriers = [("coal", "Coal"), ("ccgt_steam", "CCGT"), ("ocgt", "OCGT/Gas")]
+    bottom_fossil = np.zeros(len(periods))
+    for carrier, label in fossil_carriers:
+        vals = cap_df.get(carrier, pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0).values
+        color = tech_colors.get(carrier, "#bbbbbb")
+        ax_coal.bar(x, vals, bottom=bottom_fossil, width=bw, color=color, alpha=0.85, label=label)
+        bottom_fossil += vals
+    ax_coal.set_xlim(xlim)
+    ax_coal.set_ylabel("Fossil Capacity [GW]")
+    ax_coal.set_title("Fossil Capacity & RE Curtailment")
     ax_coal.set_xticks(x); ax_coal.set_xticklabels(periods, rotation=45)
 
     ax_coal2 = ax_coal.twinx()
@@ -688,7 +700,7 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
     ax_coal2.tick_params(axis="y", labelcolor="#e67e22")
     h1, l1 = ax_coal.get_legend_handles_labels()
     h2, l2 = ax_coal2.get_legend_handles_labels()
-    ax_coal.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper right")
+    ax_coal.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper center", ncol=2)
 
     fig.tight_layout()
     return fig

@@ -105,8 +105,9 @@ def set_extendable_limits_global(n):
         global_limit.index = global_limit.index.droplevel([0, 1, 2, 3])
         global_limit = global_limit.loc[~(global_limit == ignore[lim]).all(axis=1)]
         # AM added: Excel has cumulative IRP targets including existing 2025 installed base.
-        # Step 1: subtract existing non-extendable capacity → net new-build targets.
-        # Step 2: cumulative net → per-investment-period delta (new build IN that period).
+        # Subtract existing non-extendable capacity → net cumulative new-build targets per period.
+        # PyPSA's tech_capacity_expansion_limit accumulates p_nom_opt across all periods up to y,
+        # so passing cumulative (IRP - existing) values directly enforces the correct per-period additions.
         carrier_groups = snakemake.config["electricity"].get("existing_capacity_carriers", {})
         existing_cap = pd.Series(0.0, index=global_limit.index)
         for carrier in global_limit.index:
@@ -117,10 +118,6 @@ def set_extendable_limits_global(n):
             )
             logging.info(f"existing_cap[{carrier}] = {existing_cap[carrier]:.0f} MW (from {existing_carriers})")
         global_limit = global_limit.sub(existing_cap, axis=0).clip(lower=0)
-        if len(global_limit.columns) > 1:
-            delta = global_limit.diff(axis=1)
-            delta.iloc[:, 0] = global_limit.iloc[:, 0]
-            global_limit = delta.clip(lower=0)
         constraints = [
             {
                 "name": f"global_{lim}-{carrier}-{y}",
