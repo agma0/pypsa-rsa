@@ -498,12 +498,14 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
         # representative year). gen_p_annual.loc[y] is therefore already annual MWh.
         # Both LHS (p_nom * capital_cost, annualised kZAR/yr) and RHS (annual CT
         # revenues) are on the same annual basis — no years_in_period division needed.
-        # 100% of annual CT revenues are required to be reinvested in RE.
+        # 50% of annual CT revenues are reinvested in RE; the other 50% represent
+        # other government spending (social transfers, budget etc.).
+        REINVEST_FRACTION = 0.5
         gen_p_y     = gen_p_annual.loc[y]                      # MWh/yr (annual)
         common      = gen_emissions.columns.intersection(gen_p_y.index)
         ef_y        = gen_emissions.loc[y, common] if y in gen_emissions.index else gen_emissions.iloc[-1][common]
         emissions_t = (gen_p_y[common] * ef_y).sum() / 1000   # tCO2/yr
-        ct_revenues = ct_rate * emissions_t                    # R/yr (100% reinvested)
+        ct_revenues = ct_rate * emissions_t * REINVEST_FRACTION  # R/yr (50% reinvested)
 
         # Base scenario: annualised RE investment built in period y
         base_re = n_base.generators.query(
@@ -513,8 +515,8 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
 
         logger.info(
             f"CT reinvestment multiyear [{SCENARIO_SETUP.name}] {y}: "
-            f"{emissions_t/1e6:.2f} MtCO2/yr × {ct_rate} R/t "
-            f"= {ct_revenues/1e9:.2f} bn ZAR/yr (100% reinvested)"
+            f"{emissions_t/1e6:.2f} MtCO2/yr × {ct_rate} R/t × {REINVEST_FRACTION:.0%} "
+            f"= {ct_revenues/1e9:.2f} bn ZAR/yr reinvested in RE"
         )
 
         # _R scenario: extendable RE built in period y
