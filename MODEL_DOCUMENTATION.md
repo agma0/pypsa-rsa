@@ -802,10 +802,12 @@ screen -S pypsa
 
 **Step 3 — run Snakemake directly on the frontend:**
 ```bash
-cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "slurm_extra='--constraint=wrh'" "mem_mb=16000" "cpus_per_task=4" "runtime=120" --jobs 16 --latency-wait 120 --rerun-incomplete -F
+cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "mem_mb=16000" "cpus_per_task=4" "runtime=120" --jobs 16 --latency-wait 120 --rerun-incomplete -F
 ```
 
 You should see `Submitted job ... with SLURM jobid ...` lines appearing immediately.
+
+> **Note on `--constraint=wrh`:** Adding `slurm_extra='--constraint=wrh'` to `--default-resources` causes a quoting issue in the SLURM executor and jobs are silently not submitted (squeue stays empty). Leave it out for now — `standard` partition works fine. If wrh nodes are needed later, the constraint can be added via a Snakemake profile instead.
 
 **Step 4 — detach and log out safely:**
 ```
