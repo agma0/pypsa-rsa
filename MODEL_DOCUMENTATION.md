@@ -780,39 +780,54 @@ The `_R` scenarios depend on their base scenario (P0_BASE_R needs P0_BASE), so w
 - Account: `ensys`, Partition: `standard`
 
 **Before submitting — checklist:**
-- [ ] `run_scenario = 1` for all 4 P0 scenarios in `scenarios_to_run.xlsx`
-- [ ] `run_scenario = 1` for all 4 P1 scenarios in `scenarios_to_run.xlsx`
-- [ ] P0: `options = LC`, `regions = 10`
-- [ ] P1: `options = LC`, `regions = 1`
+- [ ] `run_scenario = 1` for all 8 P0/P1 scenarios in `scenarios_to_run.xlsx`
+- [ ] Test run: `options = LC-182h` | Production: `options = LC`
+- [ ] P0: `regions = 10` | P1: `regions = 1`
 
-**Submit:**
+---
+
+## 16. Running on ZECM — Correct Approach (screen on frontend)
+
+> **Do NOT use `sbatch run_head.job`** — running Snakemake inside a SLURM job is slow and not recommended by Snakemake itself. Run it directly on the frontend inside a `screen` session instead. Snakemake still submits each solve as its own SLURM child job.
+
+**Step 1 — cancel any running head job if needed:**
 ```bash
-cd /beegfs/scratch/agma/pypsa-rsa
-sbatch run_head.job
-```
-08.06.2026 - Submitted batch job 1696399
-
-
-**Monitor:**
-```bash
-squeue --me                          # shows head job + all child solve jobs
-tail -f logs/slurm_head_<JOBID>.out  # Snakemake progress log
+scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
 ```
 
-tail -f logs/slurm_head_1696399.out 
-
-
-
-(pypsa-rsa) agma@frontend02:/beegfs/scratch/agma/pypsa-rsa$ squeue --me 
-             JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
-           1696399  standard pypsa_he     agma  R       0:53      1 node166
-(pypsa-rsa) agma@frontend02:/beegfs/scratch/agma/pypsa-rsa$ 
-
-
-
-**Cancel everything** (head job + all child jobs):
+**Step 2 — start a screen session:**
 ```bash
-scancel <HEAD_JOBID>
-# child jobs submitted by Snakemake must be cancelled separately:
+screen -S pypsa
+```
+
+**Step 3 — run Snakemake directly on the frontend:**
+```bash
+cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "slurm_extra='--constraint=wrh'" "mem_mb=16000" "cpus_per_task=4" "runtime=120" --jobs 16 --latency-wait 120 --rerun-incomplete -F
+```
+
+You should see `Submitted job ... with SLURM jobid ...` lines appearing immediately.
+
+**Step 4 — detach and log out safely:**
+```
+Ctrl+A  D
+```
+The screen session keeps running even after you disconnect.
+
+**Monitor child jobs:**
+```bash
+squeue --me
+```
+
+**Reattach to the screen session:**
+```bash
+screen -r pypsa
+```
+
+**Cancel everything (Snakemake + all child jobs):**
+```bash
+# First reattach and Ctrl+C to stop Snakemake
+screen -r pypsa   # then Ctrl+C
+
+# Then cancel all remaining SLURM jobs
 scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
 ```
