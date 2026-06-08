@@ -463,8 +463,10 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
     Must be called after scale_costs(n, 1e3).
     """
     reinvest_carriers = ['wind', 'wind_low', 'solar_pv', 'solar_pv_low']
-    # Storage carriers included in the reinvestment pool (alongside RE generators)
-    reinvest_storage_carriers = ['battery_1h', 'battery_4h', 'battery_8h', 'phs']
+    # Storage carriers included in the reinvestment pool (alongside RE generators).
+    # PHS excluded: resource-constrained, decades-long lead times, not a realistic
+    # near-term CT reinvestment target in SA.
+    reinvest_storage_carriers = ['battery_1h', 'battery_4h', 'battery_8h']
 
     # Load CT_2050 rate trajectory from emissions.xlsx
     working_folder = snakemake.config["scenarios"]["working_folder"]
