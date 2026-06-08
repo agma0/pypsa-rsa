@@ -1,0 +1,32 @@
+#!/bin/bash --login
+#SBATCH --job-name=pypsa_head
+#SBATCH --output=logs/slurm_head_%j.out
+#SBATCH --partition=standard
+#SBATCH --account=ensys
+#SBATCH --time=14-00:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=2
+#SBATCH --mail-type=begin,end,fail
+#SBATCH --mail-user=agatha.majcher@tu-berlin.de
+
+export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
+
+cd /beegfs/scratch/agma/pypsa-rsa
+mkdir -p logs
+
+MAMBA_EXE='/beegfs/home/users/a/agma/.pixi/envs/micromamba/bin/micromamba'
+MAMBA_ROOT='/beegfs/home/users/a/agma/.local/share/mamba'
+PYPSA_ENV='/beegfs/home/users/a/agma/.pixi/envs/pypsa-rsa'
+
+$MAMBA_EXE run --root-prefix $MAMBA_ROOT -p $PYPSA_ENV \
+    snakemake solve_all \
+    --executor slurm \
+    --default-resources \
+        "slurm_account=ensys" \
+        "slurm_partition=standard" \
+        "mem_mb=16000" \
+        "cpus_per_task=4" \
+        "runtime=120" \
+    --jobs 16 \
+    --latency-wait 120 \
+    --rerun-incomplete

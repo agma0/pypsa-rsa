@@ -134,7 +134,10 @@ rule prepare_and_solve_network:
         capacity_value = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/capacity_value.csv",
         decom_status = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/decom_status.csv",
         full_outages = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/full_outages.csv",
+    threads: 32
     resources:
-        solver_slots=1
+        solver_slots=1,
+        mem_mb=200000,
+        runtime=20160,
     script:
         "scripts/prepare_and_solve_network.py"

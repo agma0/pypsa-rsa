@@ -688,3 +688,74 @@ Exit with `Ctrl+C`.
 ```bash
 scancel 84321
 ```
+
+---
+
+## 15. Multi-Node Parallel Execution (P0 + P1 simultaneously)
+
+For running P0 and P1 together on separate nodes at the same time, use the Snakemake SLURM executor. Instead of one large job that runs all scenarios sequentially on a single node, Snakemake submits each scenario solve as its own SLURM job.
+
+**Required package** (already installed in the pypsa-rsa env):
+```
+snakemake-executor-plugin-slurm == 2.7.1
+```
+
+**Job file:** `run_head.job`
+
+This is a lightweight orchestrator job (8 GB, 2 CPUs). It runs Snakemake, which then submits the individual solve jobs to SLURM automatically.
+
+**What happens after `sbatch run_head.job`:**
+
+```
+Head job starts (1 node, 8 GB — just Snakemake)
+
+  Pre-processing (build_topology, base_network, add_electricity)
+  → submitted as small jobs per scenario, run in parallel, finish in minutes
+
+  Solve wave 1 — all independent scenarios at the same time:
+    Node A: P0_BASE   (200 GB, 32 CPUs)
+    Node B: P0_CT     (200 GB, 32 CPUs)
+    Node C: P1_BASE   (200 GB, 32 CPUs)
+    Node D: P1_CT     (200 GB, 32 CPUs)
+
+  Solve wave 2 — starts automatically when wave 1 finishes:
+    Node E: P0_BASE_R  (waits for P0_BASE solved.nc)
+    Node F: P0_CT_R    (waits for P0_CT solved.nc)
+    Node G: P1_BASE_R  (waits for P1_BASE solved.nc)
+    Node H: P1_CT_R    (waits for P1_CT solved.nc)
+
+  Plots — run automatically after each scenario finishes
+```
+
+The `_R` scenarios depend on their base scenario (P0_BASE_R needs P0_BASE), so wave 2 starts as soon as the relevant base is done — not all at once at the end.
+
+**SLURM resources per solve job** (set in Snakefile `prepare_and_solve_network` rule):
+- Memory: 200 GB
+- CPUs: 32 (Gurobi uses all available threads)
+- Max runtime: 14 days
+- Account: `ensys`, Partition: `standard`
+
+**Before submitting — checklist:**
+- [ ] `run_scenario = 1` for all 4 P0 scenarios in `scenarios_to_run.xlsx`
+- [ ] `run_scenario = 1` for all 4 P1 scenarios in `scenarios_to_run.xlsx`
+- [ ] P0: `options = LC`, `regions = 10`
+- [ ] P1: `options = LC`, `regions = 1`
+
+**Submit:**
+```bash
+cd /beegfs/scratch/agma/pypsa-rsa
+sbatch run_head.job
+```
+
+**Monitor:**
+```bash
+squeue --me                          # shows head job + all child solve jobs
+tail -f logs/slurm_head_<JOBID>.out  # Snakemake progress log
+```
+
+**Cancel everything** (head job + all child jobs):
+```bash
+scancel <HEAD_JOBID>
+# child jobs submitted by Snakemake must be cancelled separately:
+scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
+```

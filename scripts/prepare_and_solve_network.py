@@ -548,8 +548,7 @@ if __name__ == "__main__":
 
 
     logging.info("Setting global and regional build limits")
-    if len(n.buses) != 1: #covered under single bus limits
-        set_extendable_limits_global(n) 
+    set_extendable_limits_global(n)
     set_extendable_limits_per_bus(n)
 
     logging.info("Solving network")
