@@ -157,9 +157,16 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
         # bus_sizes = n.generators_t.p.sum().loc[n.generators.carrier == "load"].groupby(n.generators.bus).sum()
         n.generators.loc[n.generators.carrier.isin(["OCGT", "CCGT"]), "carrier"] = "gas"
         n.generators.loc[n.generators.carrier.isin(["hydro", "hydro-import", "hydro+PHS"]), "carrier"] = "hydro"
+        if n.multi_invest and len(n.investment_periods) > 0:
+            final_year = n.investment_periods[-1]
+            active = (n.generators.build_year <= final_year) & \
+                     (n.generators.build_year + n.generators.lifetime > final_year)
+            gens_plot = n.generators[active]
+        else:
+            gens_plot = n.generators
         bus_sizes = group_carriers(pd.concat(
             (
-                n.generators.query('carrier != "load_shedding"')
+                gens_plot.query('carrier != "load_shedding"')
                 .groupby(["bus", "carrier"])
                 .p_nom_opt.sum(),
                 n.storage_units.groupby(["bus", "carrier"]).p_nom_opt.sum(),
@@ -500,6 +507,195 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
 
 ##########
 
+def plot_pathway(n, opts, gen_emissions_df=None, scenario_name=""):
+    """6-panel pathway plot: capacity, generation, costs, CO2, emissions intensity, coal+curtailment."""
+    tech_colors = opts["tech_colors"]
+    nice_names  = opts.get("nice_names", {})
+
+    periods = list(n.investment_periods) if (n.multi_invest and len(n.investment_periods) > 0) \
+              else [int(str(n.snapshots[0])[:4])]
+
+    # ── 1. Capacity [GW] per period ────────────────────────────────────────────
+    cap_rows = {}
+    for y in periods:
+        active = (
+            (n.generators.build_year <= y)
+            & (n.generators.build_year + n.generators.lifetime > y)
+            & (~n.generators.carrier.isin(["load_shedding"]))
+        )
+        gy = n.generators[active].copy()
+        gy["carrier"] = gy["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
+        gy = gy[~gy["carrier"].isin(CARRIER_DROP)]
+        cap_rows[y] = gy.groupby("carrier")["p_nom_opt"].sum() / 1e3  # GW
+    cap_df = pd.DataFrame(cap_rows).T.fillna(0)
+
+    # ── 2. Generation [TWh/a] per period ───────────────────────────────────────
+    if n.multi_invest:
+        ef = (n.generators_t.p
+              .multiply(n.snapshot_weightings.generators, axis=0)
+              .groupby(level=0).sum())
+    else:
+        ev = (n.generators_t.p
+              .multiply(n.snapshot_weightings.generators, axis=0).sum())
+        ef = pd.DataFrame([ev.values], index=pd.Index(periods), columns=ev.index)
+
+    cmap = n.generators["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
+    drop = cmap.isin(CARRIER_DROP | {"load_shedding"})
+    gen_df = (ef.loc[:, ~drop].rename(columns=cmap[~drop])
+               .T.groupby(level=0).sum().T / 1e6)       # TWh
+    gen_df = gen_df.reindex(periods).fillna(0)
+
+    # ── 3. System costs [bn ZAR/a] per period ──────────────────────────────────
+    fc_list, vc_list = [], []
+    for y in periods:
+        active = (
+            (n.generators.build_year <= y)
+            & (n.generators.build_year + n.generators.lifetime > y)
+            & (~n.generators.carrier.isin(["load_shedding"]))
+        )
+        gy = n.generators[active]
+        fc = (gy["capital_cost"] * gy["p_nom_opt"]).sum() * 1000 / 1e9   # bn ZAR/a
+        if y in ef.index:
+            common = ef.columns.intersection(n.generators.index)
+            vc = (ef.loc[y, common] * n.generators.loc[common, "marginal_cost"]).sum() * 1000 / 1e9
+        else:
+            vc = 0.0
+        fc_list.append(fc)
+        vc_list.append(vc)
+    cost_df = pd.DataFrame({"Capital": fc_list, "Marginal": vc_list}, index=pd.Index(periods))
+
+    # ── 4. CO₂ [MtCO₂/a] per period ───────────────────────────────────────────
+    co2_s = pd.Series(0.0, index=pd.Index(periods))
+    if gen_emissions_df is not None:
+        try:
+            common = gen_emissions_df.columns.intersection(ef.columns)
+            co2_s = (ef[common] * gen_emissions_df[common]).sum(axis=1) / 1e9
+            co2_s = co2_s.reindex(periods).fillna(0)
+        except Exception:
+            pass
+
+    # ── 5. Emissions intensity [tCO₂/MWh] ─────────────────────────────────────
+    total_gen_twh = gen_df.sum(axis=1)
+    ei_s = (co2_s * 1000 / total_gen_twh.replace(0, np.nan)).fillna(0)
+
+    # ── 6. Coal capacity [GW] + RE curtailment [TWh/a] ────────────────────────
+    coal_cap_s = cap_df.get("coal", pd.Series(0.0, index=pd.Index(periods))).reindex(periods).fillna(0)
+
+    re_raw = {"solar_pv", "solar_pv_low", "solar_pv_rooftop", "wind", "wind_low", "solar_csp"}
+    curtail_rows = {}
+    for y in periods:
+        try:
+            active = (
+                (n.generators.build_year <= y)
+                & (n.generators.build_year + n.generators.lifetime > y)
+                & n.generators.carrier.isin(re_raw)
+            )
+            re_idx = n.generators.index[active]
+            if len(re_idx) == 0 or y not in ef.index:
+                curtail_rows[y] = 0.0
+                continue
+            p_nom = n.generators.loc[re_idx, "p_nom_opt"]
+            w = (n.snapshot_weightings.generators.loc[y] if n.multi_invest
+                 else n.snapshot_weightings.generators)
+
+            if n.multi_invest:
+                p_act = n.generators_t.p.loc[y].reindex(columns=re_idx, fill_value=0)
+            else:
+                p_act = n.generators_t.p.reindex(columns=re_idx, fill_value=0)
+            act_twh = p_act.multiply(w, axis=0).sum().sum() / 1e6
+
+            t_pmu = n.generators_t.p_max_pu
+            if not t_pmu.empty and n.multi_invest:
+                pmu_y = (t_pmu.loc[y]
+                         if y in t_pmu.index.get_level_values(0) else pd.DataFrame())
+            elif not t_pmu.empty:
+                pmu_y = t_pmu
+            else:
+                pmu_y = pd.DataFrame()
+
+            common_re = re_idx.intersection(pmu_y.columns) if not pmu_y.empty else pd.Index([])
+            avail_twh = 0.0
+            if len(common_re) > 0:
+                avail_twh += (pmu_y[common_re].multiply(w, axis=0)
+                              .mul(p_nom[common_re]).sum().sum() / 1e6)
+            fixed_re = re_idx.difference(common_re)
+            if len(fixed_re) > 0:
+                avail_twh += (n.generators.loc[fixed_re, "p_max_pu"]
+                              * p_nom[fixed_re] * w.sum()).sum() / 1e6
+            curtail_rows[y] = max(0.0, avail_twh - act_twh)
+        except Exception:
+            curtail_rows[y] = 0.0
+    curtail_s = pd.Series(curtail_rows)
+
+    # ── PLOT ───────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(3, 2, figsize=(14, 13))
+    fig.suptitle(scenario_name, fontsize=13, fontweight="bold")
+    ax_cap,  ax_gen  = axes[0, 0], axes[0, 1]
+    ax_cost, ax_co2  = axes[1, 0], axes[1, 1]
+    ax_ei,   ax_coal = axes[2, 0], axes[2, 1]
+    x = np.arange(len(periods))
+    bw = 0.65
+
+    def stacked_bars(ax, df, ylabel, title):
+        order = [c for c in CARRIER_ORDER if c in df.columns]
+        order += [c for c in df.columns if c not in CARRIER_ORDER]
+        bottom = np.zeros(len(periods))
+        handles = []
+        for c in order:
+            if c not in tech_colors or df[c].sum() < 0.01:
+                continue
+            vals = df[c].values
+            bar = ax.bar(x, vals, bottom=bottom, width=bw,
+                         color=tech_colors[c], label=nice_names.get(c, c))
+            handles.append(bar)
+            bottom += vals
+        ax.set_xticks(x); ax.set_xticklabels(periods, rotation=45)
+        ax.set_ylabel(ylabel); ax.set_title(title)
+        ax.legend(loc="upper left", fontsize=7, ncol=2)
+
+    stacked_bars(ax_cap, cap_df, "Installed Capacity [GW]", "Capacity")
+    stacked_bars(ax_gen, gen_df, "Generation [TWh/a]",      "Generation")
+
+    ax_cost.bar(x, cost_df["Capital"].values, width=bw, color="#1f77b4", label="Capital")
+    ax_cost.bar(x, cost_df["Marginal"].values, width=bw,
+                bottom=cost_df["Capital"].values, color="#ff7f0e", label="Marginal")
+    ax_cost.set_xticks(x); ax_cost.set_xticklabels(periods, rotation=45)
+    ax_cost.set_ylabel("System Cost [bn ZAR/a]"); ax_cost.set_title("System Costs")
+    ax_cost.legend(fontsize=8)
+
+    ax_co2.bar(x, co2_s.values, width=bw, color="#555555")
+    ax_co2.set_xticks(x); ax_co2.set_xticklabels(periods, rotation=45)
+    ax_co2.set_ylabel("CO₂ Emissions [MtCO₂/a]"); ax_co2.set_title("CO₂ Emissions")
+
+    # Panel 5 — Emissions intensity
+    ax_ei.plot(x, ei_s.values, color="#e74c3c", marker="o", linewidth=2)
+    ax_ei.set_xticks(x); ax_ei.set_xticklabels(periods, rotation=45)
+    ax_ei.set_ylabel("Emissions Intensity [tCO₂/MWh]")
+    ax_ei.set_title("Emissions Intensity")
+    ax_ei.set_ylim(bottom=0)
+
+    # Panel 6 — Coal capacity (bars, left axis) + RE curtailment (line, right axis)
+    coal_color = tech_colors.get("coal", "#333333")
+    ax_coal.bar(x, coal_cap_s.values, width=bw, color=coal_color, alpha=0.8, label="Coal capacity")
+    ax_coal.set_ylabel("Coal Capacity [GW]")
+    ax_coal.set_title("Coal Capacity & RE Curtailment")
+    ax_coal.set_xticks(x); ax_coal.set_xticklabels(periods, rotation=45)
+
+    ax_coal2 = ax_coal.twinx()
+    ax_coal2.plot(x, curtail_s.reindex(periods).fillna(0).values,
+                  color="#e67e22", marker="s", linewidth=2, label="RE curtailment")
+    ax_coal2.set_ylabel("RE Curtailment [TWh/a]", color="#e67e22")
+    ax_coal2.tick_params(axis="y", labelcolor="#e67e22")
+    h1, l1 = ax_coal.get_legend_handles_labels()
+    h2, l2 = ax_coal2.get_legend_handles_labels()
+    ax_coal.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper right")
+
+    fig.tight_layout()
+    return fig
+
+
+##########
+
 if __name__ == "__main__":
     if "snakemake" not in globals():
         from _helpers import mock_snakemake
@@ -529,6 +725,9 @@ if __name__ == "__main__":
         resarea_path=snakemake.input.resarea,
     )
 
+    display_year = n.investment_periods[-1] if (n.multi_invest and len(n.investment_periods) > 0) else int(str(n.snapshots[0])[:4])
+    ax.set_title(f"{snakemake.wildcards.scenario}  |  {display_year}", fontsize=11, pad=8)
+
     fig.savefig(snakemake.output.only_map, dpi=150, bbox_inches="tight")
 
     # Load generator emissions once — used for CO2 text and cost bar
@@ -555,3 +754,11 @@ if __name__ == "__main__":
     plot_total_cost_bar(n, config["plotting"], ax=ax2, gen_emissions_df=gen_em, total_emissions=co2_2030)
 
     fig.savefig(snakemake.output.ext, transparent=True, bbox_inches='tight')
+
+    fig_pathway = plot_pathway(
+        n, config["plotting"],
+        gen_emissions_df=gen_em,
+        scenario_name=snakemake.wildcards.scenario,
+    )
+    fig_pathway.savefig(snakemake.output.pathway, dpi=150, bbox_inches="tight")
+    plt.close(fig_pathway)

@@ -90,6 +90,7 @@ rule plot_network:
     output:
         only_map = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_only.png",
         ext = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/map_full.png",
+        pathway = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/plots/pathway.png",
     script:
         "scripts/plot_network_sa.py"
 
