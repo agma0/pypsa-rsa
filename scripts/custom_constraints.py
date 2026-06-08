@@ -494,11 +494,18 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
             logger.warning(f"CT reinvestment multiyear [{SCENARIO_SETUP.name}]: period {y} not in base generation, skipping")
             continue
 
-        gen_p_y     = gen_p_annual.loc[y]
+        # AM adjusted: divide by years_in_period to get annual representative value.
+        # snapshot_weightings["generators"] includes years_active, so gen_p_annual.loc[y]
+        # is the cumulative MWh over the full period (e.g. 5 years for a 5-year step).
+        # The LHS (p_nom * capital_cost) is annualised [kZAR/yr], so both sides must be
+        # on the same annual basis. Conservative approximation: uses end-year dispatch
+        # (less coal than early years) with end-year CT rate (higher than early years).
+        years_in_period = n_base.investment_period_weightings.loc[y, "years"]
+        gen_p_y     = gen_p_annual.loc[y] / years_in_period   # MWh/yr — representative year
         common      = gen_emissions.columns.intersection(gen_p_y.index)
         ef_y        = gen_emissions.loc[y, common] if y in gen_emissions.index else gen_emissions.iloc[-1][common]
-        emissions_t = (gen_p_y[common] * ef_y).sum() / 1000  # tCO2
-        ct_revenues = ct_rate * emissions_t                    # R
+        emissions_t = (gen_p_y[common] * ef_y).sum() / 1000   # tCO2/yr
+        ct_revenues = ct_rate * emissions_t                    # R/yr
 
         # Base scenario: annualised RE investment built in period y
         base_re = n_base.generators.query(
@@ -508,7 +515,8 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
 
         logger.info(
             f"CT reinvestment multiyear [{SCENARIO_SETUP.name}] {y}: "
-            f"{emissions_t/1e6:.2f} MtCO2 × {ct_rate} R/t = {ct_revenues/1e9:.2f} bn ZAR"
+            f"{emissions_t/1e6:.2f} MtCO2/yr (representative) × {ct_rate} R/t "
+            f"= {ct_revenues/1e9:.2f} bn ZAR/yr  [years_in_period={years_in_period}]"
         )
 
         # _R scenario: extendable RE built in period y

@@ -247,14 +247,13 @@ Logic:
 
 Including `base_RE_investment` on the RHS ensures the `_R` scenarios invest *above* the baseline, not merely equal to it.
 
-#### `add_ct_reinvestment_constraint_multiyear()` — P1 (7 periods: 2025–2050)
+#### `add_ct_reinvestment_constraint_multiyear()` — P1 (6 periods: 2025–2050)
 
 Same logic as above but loops over **all investment periods**, adding one constraint per period. CT rates are read from `emissions.xlsx` sheet `carbon_tax`, scenario `CT_2050`:
 
 | Period | CT_2050 rate [R/tCO₂] |
 |--------|----------------------|
 | 2025   | 236                  |
-| 2029   | 424                  |
 | 2030   | 462                  |
 | 2035   | 894                  |
 | 2040   | 1326                 |
@@ -263,11 +262,20 @@ Same logic as above but loops over **all investment periods**, adding one constr
 
 For each period y:
 1. Look up CT_2050[y]. Skip if rate = 0.
-2. Calculate base scenario emissions in period y × CT_2050[y] = CT revenues[y].
-3. Get base scenario RE investment with `build_year == y`.
-4. Add constraint: `Σ(p_nom[build_year==y] × capital_cost) ≥ base_RE[y] + CT_revenues[y]`.
+2. Divide cumulative generation by `years_in_period` to obtain **annual representative generation** [MWh/yr]. PyPSA's `snapshot_weightings["generators"]` already includes `years_active`, so the raw sum is a period total, not an annual value. Without this division the LHS (annualised capex) and RHS (multi-year CT revenues) would have mismatched time bases, making the constraint `years_in_period`× too stringent.
+3. Calculate annual CT revenues: `annual_emissions_t [tCO₂/yr] × CT_2050[y] [R/tCO₂]`.
+4. Get base scenario annual RE investment with `build_year == y`.
+5. Add constraint: `Σ(p_nom[build_year==y] × capital_cost) ≥ base_annual_RE[y] + annual_CT_revenues[y]`.
 
-Only generators with `build_year == y` count — capacity built in earlier periods is not double-counted. Named `ct_reinvestment_{y}` in the linopy model.
+Only generators with `build_year == y` count. Named `ct_reinvestment_{y}` in the linopy model.
+
+**5-year step approximation and its direction of bias:**  
+Because the model has one representative dispatch year per investment period (e.g. 2030 represents 2026–2030), the constraint uses:
+- **Emissions**: 2030 system state — lower coal than 2026–2028 → **underestimates** real average annual emissions over the period.
+- **CT rate**: end-year value (e.g. 462 R/t in 2030) — higher than the 2026–2029 average (~390 R/t) → **overestimates** the average annual rate.
+- **Net effect**: the two biases partially cancel; the approximation yields a conservative lower bound for cumulative CT revenues. The constraint therefore enforces a *minimum* reinvestment consistent with end-year conditions.
+
+This is a known limitation of 5-year investment step models. Accurate period-by-period CT revenue accounting would require annual investment periods or exogenous averaging of CT rates over the period. For Paper 1, the approximation is disclosed and the direction of bias (conservative) is noted in the results section.
 
 ### 9.2 `prepare_and_solve_network.py`
 
