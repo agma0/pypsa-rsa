@@ -802,7 +802,7 @@ screen -S pypsa
 
 **Step 3 — run Snakemake directly on the frontend:**
 ```bash
-cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "mem_mb=16000" "cpus_per_task=4" "runtime=120" "slurm_mail_type=END,FAIL" "slurm_mail_user=agatha.majcher@tu-berlin.de" --jobs 16 --latency-wait 120 --rerun-incomplete -F
+cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "mem_mb=16000" "cpus_per_task=4" "runtime=120" "slurm_mail_type=END,FAIL" "slurm_mail_user=agatha.majcher@tu-berlin.de" --resources solver_slots=2 --jobs 16 --latency-wait 120 --rerun-incomplete -F
 ```
 
 You should see `Submitted job ... with SLURM jobid ...` lines appearing immediately.
