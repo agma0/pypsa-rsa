@@ -463,6 +463,8 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
     Must be called after scale_costs(n, 1e3).
     """
     reinvest_carriers = ['wind', 'wind_low', 'solar_pv', 'solar_pv_low']
+    # Storage carriers included in the reinvestment pool (alongside RE generators)
+    reinvest_storage_carriers = ['battery_1h', 'battery_4h', 'battery_8h', 'phs']
 
     # Load CT_2050 rate trajectory from emissions.xlsx
     working_folder = snakemake.config["scenarios"]["working_folder"]
@@ -498,8 +500,8 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
         # representative year). gen_p_annual.loc[y] is therefore already annual MWh.
         # Both LHS (p_nom * capital_cost, annualised kZAR/yr) and RHS (annual CT
         # revenues) are on the same annual basis — no years_in_period division needed.
-        # 50% of annual CT revenues are reinvested in RE; the other 50% represent
-        # other government spending (social transfers, budget etc.).
+        # 50% of annual CT revenues are reinvested in RE + storage; the other 50%
+        # represents other government spending (social transfers, budget etc.).
         REINVEST_FRACTION = 0.5
         gen_p_y     = gen_p_annual.loc[y]                      # MWh/yr (annual)
         common      = gen_emissions.columns.intersection(gen_p_y.index)
@@ -507,42 +509,66 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
         emissions_t = (gen_p_y[common] * ef_y).sum() / 1000   # tCO2/yr
         ct_revenues = ct_rate * emissions_t * REINVEST_FRACTION  # R/yr (50% reinvested)
 
-        # Base scenario: annualised RE investment built in period y
+        # Base scenario: annualised RE + storage investment built in period y
         base_re = n_base.generators.query(
             "carrier in @reinvest_carriers and build_year == @y and p_nom_extendable"
         )
-        base_re_investment = (base_re.p_nom_opt * base_re.capital_cost).sum()  # kZAR/yr
+        base_su = n_base.storage_units.query(
+            "carrier in @reinvest_storage_carriers and build_year == @y and p_nom_extendable"
+        )
+        base_re_investment = (
+            (base_re.p_nom_opt * base_re.capital_cost).sum()
+            + (base_su.p_nom_opt * base_su.capital_cost).sum()
+        )  # kZAR/yr
 
         logger.info(
             f"CT reinvestment multiyear [{SCENARIO_SETUP.name}] {y}: "
             f"{emissions_t/1e6:.2f} MtCO2/yr × {ct_rate} R/t × {REINVEST_FRACTION:.0%} "
-            f"= {ct_revenues/1e9:.2f} bn ZAR/yr reinvested in RE"
+            f"= {ct_revenues/1e9:.2f} bn ZAR/yr reinvested in RE+storage"
         )
 
-        # _R scenario: extendable RE built in period y
+        # _R scenario: extendable RE generators built in period y
         add_gens = n.generators.query(
             "carrier in @reinvest_carriers and build_year == @y and p_nom_extendable"
         )
-        if add_gens.empty:
+        # _R scenario: extendable storage built in period y
+        add_sus = n.storage_units.query(
+            "carrier in @reinvest_storage_carriers and build_year == @y and p_nom_extendable"
+        )
+        if add_gens.empty and add_sus.empty:
             logger.warning(
                 f"CT reinvestment multiyear [{SCENARIO_SETUP.name}] {y}: "
-                "no extendable RE generators found — skipping this period."
+                "no extendable RE generators or storage found — skipping this period."
             )
             continue
 
-        p_nom = n.model.variables["Generator-p_nom"].sel({"Generator-ext": add_gens.index})
-        costs = xr.DataArray(
-            add_gens["capital_cost"].values,
-            dims=["Generator-ext"],
-            coords={"Generator-ext": add_gens.index.values}
-        )
-        lhs = (p_nom * costs).sum("Generator-ext")
+        # LHS: sum of (p_nom × capital_cost) for RE generators + storage units
+        lhs_parts = []
+        if not add_gens.empty:
+            p_nom = n.model.variables["Generator-p_nom"].sel({"Generator-ext": add_gens.index})
+            costs = xr.DataArray(
+                add_gens["capital_cost"].values,
+                dims=["Generator-ext"],
+                coords={"Generator-ext": add_gens.index.values}
+            )
+            lhs_parts.append((p_nom * costs).sum("Generator-ext"))
+        if not add_sus.empty:
+            s_nom = n.model.variables["StorageUnit-p_nom"].sel({"StorageUnit-ext": add_sus.index})
+            su_costs = xr.DataArray(
+                add_sus["capital_cost"].values,
+                dims=["StorageUnit-ext"],
+                coords={"StorageUnit-ext": add_sus.index.values}
+            )
+            lhs_parts.append((s_nom * su_costs).sum("StorageUnit-ext"))
+        lhs = sum(lhs_parts)
+
         rhs = base_re_investment + ct_revenues / 1e3  # both in kZAR
 
         n.model.add_constraints(lhs >= rhs, name=f"ct_reinvestment_{y}")
 
         logger.info(
-            f"CT reinvestment_{y} added: RE invest >= {base_re_investment/1e6:.2f} "
-            f"+ {ct_revenues/1e9:.2f} bn ZAR ({len(add_gens)} generators)"
+            f"CT reinvestment_{y} added: RE+storage invest >= {base_re_investment/1e6:.2f} "
+            f"+ {ct_revenues/1e9:.2f} bn ZAR "
+            f"({len(add_gens)} generators, {len(add_sus)} storage units)"
         )
 # AM added -----------------------------------------------------------------------
