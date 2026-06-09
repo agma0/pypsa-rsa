@@ -21,7 +21,7 @@ $SNAKEMAKE solve_all -F \
     --default-resources \
         "slurm_partition=standard" \
         "mem_mb=16000" \
-        "runtime=120" \
+        "runtime=20000" \
         "slurm_mail_type=END,FAIL" \
         "slurm_mail_user=agatha.majcher@tu-berlin.de" \
     --resources solver_slots=2 \

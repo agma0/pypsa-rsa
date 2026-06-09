@@ -560,33 +560,6 @@ The optimizer never invests beyond the reinvestment floor — it treats the cons
 
 ---
 
-## 14. Run Instructions
-
-```bash
-# All scenarios (force rebuild):
-pixi run snakemake solve_all -j 4 -F --resources solver_slots=2
-
-# Individual targets:
-pixi run snakemake results/Coal_Flexibilisation/P0_BASE/networks/solved.nc -j 4
-pixi run snakemake results/Coal_Flexibilisation/P0_CT/networks/solved.nc -j 4
-# _R scenarios require P0_BASE to be solved first:
-pixi run snakemake results/Coal_Flexibilisation/P0_BASE_R/networks/solved.nc -j 4
-pixi run snakemake results/Coal_Flexibilisation/P0_CT_R/networks/solved.nc -j 4
-
-# On SLURM:
-sbatch run_p0.job
-squeue -u agma
-tail -f logs/slurm_p0_<JOBID>.out
-```
-
-Results and plots are saved to:
-```
-results/Coal_Flexibilisation/{scenario}/networks/solved.nc
-results/Coal_Flexibilisation/{scenario}/outputs/plots/
-```
-
----
-
 ## 14. Results Analysis Notebook
 
 **File:** `paper0_results_analysis.ipynb`
@@ -661,178 +634,107 @@ pkill -f "jupyter lab"
 
 ---
 
-## 14. Running the Full LC Solve on the HPC Cluster
+## 15. Running on ZECM HPC — Production Runs
 
-The production run uses the SLURM batch system on the TU Berlin HPC cluster. The job script is at `/beegfs/scratch/agma/pypsa-rsa/run_p0.job`.
+> **Do NOT `sbatch run_head.job`** — the head Snakemake process must run on the frontend, not as a SLURM job. Snakemake itself submits each rule as its own SLURM child job automatically.
 
-**What each line in `run_p0.job` does:**
-```bash
-#!/bin/bash --login
-#SBATCH --job-name=pypsa_p0            # Name shown in squeue
-#SBATCH --output=logs/slurm_p0_%j.out # All output goes into this file (%j = job ID)
-#SBATCH --partition=standard           # Which part of the cluster to use
-#SBATCH --time=14-00:00:00             # Max 14 days, then the job is killed
-#SBATCH --mem=200G                     # 200 GB RAM reserved
-#SBATCH --cpus-per-task=32             # 32 CPU cores (~16 per Gurobi instance)
-#SBATCH --mail-type=begin,end,fail     # Email on start, end, or failure
-#SBATCH --mail-user=agatha.majcher@tu-berlin.de
+### Before every run — checklist
+- [ ] `run_scenario = 1` for all scenarios to run in `scenarios_to_run.xlsx`
+- [ ] `options = LC-182h` for test runs | `options = LC` for production
+- [ ] P0: `regions = 10` | P1: `regions = 1`
 
-export GRB_LICENSE_FILE=...            # Tell Gurobi where to find the license
-
-cd /beegfs/scratch/agma/pypsa-rsa      # Move into the project folder
-
-# Writes "still running" to the log every hour
-while true; do sleep 3600; echo "..."; done &
-
-# The actual core command:
-snakemake solve_all -j 4 -F --resources solver_slots=2
-#            ↑           ↑  ↑                    ↑
-#        all 4 scenarios  up to 4   force rerun  max 2 Gurobi
-#                         parallel  everything   instances at once
-```
-
-Snakemake reads the dependencies automatically and solves in the correct order: P0_BASE + P0_CT in parallel first, then P0_BASE_R + P0_CT_R in parallel (the _R scenarios need the base results before they can start).
-
-**What the job does:**
-- Calls `snakemake solve_all` which solves all 4 P0 scenarios
-- Runs 2 scenarios in parallel at a time (`solver_slots=2`): first P0_BASE + P0_CT simultaneously, then P0_BASE_R + P0_CT_R simultaneously (the _R scenarios depend on the base results)
-- Resources: partition=standard, 14-day time limit, 64 GB RAM, 32 CPUs (32 threads for Gurobi)
-- Gurobi license: `/home/users/a/agma/gurobi.lic`
-
-**Before submitting — checklist:**
-- [ ] `options = LC` set in `scenarios_to_run.xlsx` for all 4 P0 scenarios
-
-**Step 1 — navigate to the project directory:**
-```bash
-cd /beegfs/scratch/agma/pypsa-rsa
-```
-
-**Step 2 — submit the job:**
-```bash
-sbatch run_p0.job
-```
-The terminal responds with e.g. `Submitted batch job 84321`. **Note down this number.**
-
-**Step 3 — close the terminal.** The job runs independently on the cluster.
-
-**Emails:** You receive an email at `agatha.majcher@tu-berlin.de` when the job starts, ends, or fails.
-
-**Check status later:**
-```bash
-squeue --me
-```
-
-**Read the live log** (replace `84321` with your job ID):
-```bash
-tail -f /beegfs/scratch/agma/pypsa-rsa/logs/slurm_p0_84321.out
-```
-Exit with `Ctrl+C`.
-
-**Cancel if needed:**
-```bash
-scancel 84321
-```
-
----
-
-## 15. Multi-Node Parallel Execution (P0 + P1 simultaneously)
-
-For running P0 and P1 together on separate nodes at the same time, use the Snakemake SLURM executor. Instead of one large job that runs all scenarios sequentially on a single node, Snakemake submits each scenario solve as its own SLURM job.
-
-**Required package** (already installed in the pypsa-rsa env):
-```
-snakemake-executor-plugin-slurm == 2.7.1
-```
-
-**Job file:** `run_head.job`
-
-This is a lightweight orchestrator job (8 GB, 2 CPUs). It runs Snakemake, which then submits the individual solve jobs to SLURM automatically.
-
-**What happens after `sbatch run_head.job`:**
+### What happens in the DAG
 
 ```
-Head job starts (1 node, 8 GB — just Snakemake)
+Snakemake runs on the frontend (tmux session)
 
-  Pre-processing (build_topology, base_network, add_electricity)
-  → submitted as small jobs per scenario, run in parallel, finish in minutes
+  Preprocessing — all scenarios in parallel, finishes in minutes:
+    build_topology → base_network → add_electricity  (per scenario)
 
-  Solve wave 1 — all independent scenarios at the same time:
+  Solve wave 1 — independent scenarios at the same time (up to 2 Gurobi at once):
     Node A: P0_BASE   (64 GB, 32 CPUs)
     Node B: P0_CT     (64 GB, 32 CPUs)
     Node C: P1_BASE   (64 GB, 32 CPUs)
     Node D: P1_CT     (64 GB, 32 CPUs)
 
-  Solve wave 2 — starts automatically when wave 1 finishes:
-    Node E: P0_BASE_R  (waits for P0_BASE solved.nc)
-    Node F: P0_CT_R    (waits for P0_CT solved.nc)
-    Node G: P1_BASE_R  (waits for P1_BASE solved.nc)
-    Node H: P1_CT_R    (waits for P1_CT solved.nc)
+  Solve wave 2 — each starts as soon as its base scenario is done:
+    Node E: P0_BASE_R  (waits for P0_BASE)
+    Node F: P0_CT_R    (waits for P0_CT)
+    Node G: P1_BASE_R  (waits for P1_BASE)
+    Node H: P1_CT_R    (waits for P1_CT)
 
-  Plots — run automatically after each scenario finishes
+  Plots — submitted automatically after each scenario finishes
 ```
 
-The `_R` scenarios depend on their base scenario (P0_BASE_R needs P0_BASE), so wave 2 starts as soon as the relevant base is done — not all at once at the end.
+P0 plots are available as soon as P0 is done — P1 does not need to be finished.
 
-**SLURM resources per solve job** (set in Snakefile `prepare_and_solve_network` rule):
-- Memory: 64 GB
-- CPUs: 32 (Gurobi uses all 32 threads)
-- Max runtime: 13 days
-- Partition: `standard`
-
-**Before submitting — checklist:**
-- [ ] `run_scenario = 1` for all 8 P0/P1 scenarios in `scenarios_to_run.xlsx`
-- [ ] Test run: `options = LC-182h` | Production: `options = LC`
-- [ ] P0: `regions = 10` | P1: `regions = 1`
-
----
-
-## 16. Running on ZECM — Correct Approach (screen on frontend)
-
-> **Do NOT use `sbatch run_head.job`** — running Snakemake inside a SLURM job is slow and not recommended by Snakemake itself. Run it directly on the frontend inside a `screen` session instead. Snakemake still submits each solve as its own SLURM child job.
-
-**Step 1 — cancel any running head job if needed:**
-```bash
-scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
-```
-
-**Step 2 — start a tmux session:**
+### Step 1 — start a tmux session
 ```bash
 tmux new -s pypsa
 ```
 
-**Step 3 — run Snakemake directly on the frontend:**
+### Step 2 — run
 ```bash
 bash /beegfs/scratch/agma/pypsa-rsa/run_head.job
 ```
 
-You should see `Submitted job ... with SLURM jobid ...` lines appearing immediately.
+You should see `Submitted job ... with SLURM jobid ...` lines within seconds.
 
-> **Why `--constraint=wrh` is required:** The `standard` partition contains two node generations. `node[025-130]` (Xeon E5, HDD) are slow at beegfs metadata operations — Python startup from `/beegfs/scratch` takes 60+ s on these nodes. `node[165-200]` (AMD EPYC 7543, NVMe SSD, feature `wrh`) starts Python in <1 s. Without the constraint, SLURM assigns nodes at random and jobs on old nodes will timeout.
-
-**Step 4 — detach and log out safely:**
+### Step 3 — detach (keeps running after logout)
 ```
 Ctrl+B  D
 ```
-The tmux session keeps running even after you disconnect.
 
-**Monitor child jobs:**
+### Monitor
 ```bash
+# All running child jobs:
 squeue --me
-```
 
-**Reattach to the tmux session:**
-```bash
+# Live snakemake output (reattach tmux):
 tmux attach -t pypsa
+
+# Specific job log (replace JOBID):
+tail -f /beegfs/scratch/agma/pypsa-rsa/.snakemake/slurm_logs/rule_prepare_and_solve_network/P0_BASE/JOBID.log
+
+# Snakemake head log (latest run):
+tail -f $(ls -t /beegfs/scratch/agma/pypsa-rsa/logs/snakemake_head_*.log | head -1 | xargs basename)
+
+# or 50
+tail -n 50 $(ls -t /beegfs/scratch/agma/pypsa-rsa/logs/snakemake_head_*.log | head -1)
+
 ```
 
-**Cancel everything (Snakemake + all child jobs):**
+### Cancel everything
 ```bash
-# First reattach and Ctrl+C to stop Snakemake
-tmux attach -t pypsa   # then Ctrl+C
+tmux attach -t pypsa   # then Ctrl+C to stop Snakemake
 
-# Then cancel all remaining SLURM jobs
+# Cancel all remaining child jobs:
 scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
 ```
+
+### Results location
+```
+results/Coal_Flexibilisation/{scenario}/networks/solved.nc
+results/Coal_Flexibilisation/{scenario}/outputs/plots/map_only.png
+results/Coal_Flexibilisation/{scenario}/outputs/plots/map_full.png
+results/Coal_Flexibilisation/{scenario}/outputs/plots/pathway.png
+results/Coal_Flexibilisation/{scenario}/outputs/generators.csv
+```
+
+### Results download 
+
+scp -r agma@gateway.hpc.tu-berlin.de:/beegfs/scratch/agma/pypsa-rsa/results ~/Downloads/
+
+
+### Current `run_head.job` settings
+| Parameter | Value | Meaning |
+|---|---|---|
+| `runtime` | 20000 min | ~13.9 days — under the 14-day SLURM max |
+| `mem_mb` | 16000 | default for small jobs; solve rule overrides to 64000 |
+| `solver_slots` | 2 | max 2 Gurobi sessions in parallel (WLS Academic limit) |
+| `--jobs` | 16 | max 16 SLURM child jobs submitted at once |
+| `--latency-wait` | 120 s | time to wait for output files to appear on BeeGFS |
+| `-F` | on | force rerun all rules (needed when switching LC-182h → LC) |
 
 ---
 
@@ -861,32 +763,24 @@ python3 -c "import gurobipy; m = gurobipy.Model(); print('Gurobi OK')"
 
 ---
 
-### Alternative: salloc (interactive node — no SLURM overhead)
+### TODO: PuLP/Gurobi WLS session check in every job
 
-Use this when BeeGFS metadata is slow cluster-wide, or when the run is short enough that SLURM job-submission overhead dominates (e.g. LC-2190h test runs that take ~3 min locally).
+**Problem:** Snakemake depends on PuLP for optional ILP job scheduling. At startup, every SLURM job runs `pulp.listSolvers(onlyAvailable=True)` (in `snakemake/cli.py`) which calls `GUROBI().available()` — this opens and immediately closes a WLS session. With 8 simultaneous preprocessing jobs, 8 brief Gurobi connections fire at once, temporarily pushing the session count above the WLS baseline (2).
 
-**Request one EPYC node interactively:**
-```bash
-salloc -N 1 -c 64 --mem=100G --partition=standard -t 1:30:00
+**Observed:** Warnings like the following appear in every SLURM job log even for non-solve jobs:
 ```
-SLURM queues this request and gives you a shell on the node once allocated.
-
-**Then run Snakemake locally on that node (no SLURM executor):**
-```bash
-export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
-cd /beegfs/scratch/agma/pypsa-rsa
-/home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all -j 2 --resources solver_slots=2 --rerun-incomplete -F
+pulp/apis/gurobi_api.py:238: UserWarning: GUROBI error: Overage for too long, 3 active sessions...
 ```
 
-- `-j 2`: 2 jobs in parallel → 2 × 32 threads = 64 cores = full EPYC node
-- No `--executor slurm`, no `--latency-wait` overhead
-- All preprocessing + solve runs locally on the node, no per-step queue waits
-- Node type: AMD EPYC 7543, NVMe SSD (node[165-200]) — fastest available
+**Root cause of LC run failure (June 2026):** The PuLP check wasn't the direct killer — the real cause was an OOM crash on P0_CT (64 GB not enough for 8760h LP). The crash left a zombie WLS session → subsequent solve jobs hit 3 concurrent sessions → overage cascade. Fixed by raising `mem_mb=200000` for solve jobs.
 
-**When to use salloc vs SLURM executor:**
-| | salloc | SLURM executor |
-|---|---|---|
-| Short runs (< 2h total) | ✅ better | overhead dominates |
-| Long runs (> 4h per solve) | wastes node time | ✅ better |
-| BeeGFS metadata issues | ✅ less affected | slow for all steps |
-| Production LC 8760h runs | — | ✅ correct tool |
+**Remaining risk:** If 2 solve jobs are running (2 persistent WLS sessions) and a new job starts its PuLP check simultaneously → momentary 3rd session → potential overage. Low probability but not zero.
+
+**Options to fix properly (not yet done):**
+- Reduce `solver_slots=1` (safest: max 1 persistent WLS session, but halves solve parallelism)
+- Remove `GRB_LICENSE_FILE` from `shell.prefix` and set it only inside `prepare_and_solve_network.py` so non-solve jobs can't connect to WLS at all
+- PuLP cannot be uninstalled — it is a hard dependency of snakemake
+
+---
+
+

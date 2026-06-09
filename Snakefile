@@ -148,6 +148,6 @@ rule prepare_and_solve_network:
     threads: 32
     resources:
         solver_slots=1,
-        mem_mb=64000,
+        mem_mb=200000,
     script:
         "scripts/prepare_and_solve_network.py"
