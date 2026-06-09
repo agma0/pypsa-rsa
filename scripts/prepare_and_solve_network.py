@@ -542,6 +542,7 @@ if __name__ == "__main__":
 
     SOLVER_NAME = snakemake.config["solver"][SCENARIO_SETUP["solver"]].pop("name")
     SOLVER_OPTIONS = snakemake.config["solver"][SCENARIO_SETUP["solver"]].copy()
+    SOLVER_OPTIONS["Threads"] = snakemake.threads  # use SLURM-allocated threads (overrides config.yaml)
 
 
     logging.info("Setting global and regional build limits")

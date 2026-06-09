@@ -1,13 +1,13 @@
 #!/bin/bash --login
-#SBATCH --job-name=pypsa_head
-#SBATCH --output=logs/slurm_head_%j.out
-#SBATCH --partition=standard
-#SBATCH --constraint=wrh
-#SBATCH --time=14-00:00:00
-#SBATCH --mem=8G
-#SBATCH --cpus-per-task=2
-#SBATCH --mail-type=begin,end,fail
-#SBATCH --mail-user=agatha.majcher@tu-berlin.de
+# IMPORTANT: Run this script DIRECTLY on the frontend (NOT via sbatch)!
+# Usage from frontend:
+#   tmux new -s pypsa        (start a persistent session)
+#   bash run_head.job        (inside tmux)
+#
+# Submitting via sbatch causes snakemake to run on a compute node, which:
+#   1. Creates a Gurobi session on the compute node (counts against your WLS license)
+#   2. Gets cancelled when the head SLURM job hits its time limit
+#   3. Is explicitly warned against by snakemake itself
 
 export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
 
@@ -23,11 +23,12 @@ $MAMBA_EXE run --root-prefix $MAMBA_ROOT -p $PYPSA_ENV \
     --executor slurm \
     --default-resources \
         "slurm_partition=standard" \
-        "slurm_extra='--constraint=wrh'" \
         "mem_mb=16000" \
-        "cpus_per_task=4" \
         "runtime=120" \
+        "slurm_mail_type=END,FAIL" \
+        "slurm_mail_user=agatha.majcher@tu-berlin.de" \
+    --resources solver_slots=1 \
     --jobs 16 \
     --latency-wait 120 \
     --rerun-incomplete \
-    -F
+    2>&1 | tee logs/snakemake_head_$(date +%Y%m%dT%H%M%S).log

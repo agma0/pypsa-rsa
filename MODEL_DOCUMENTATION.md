@@ -696,7 +696,7 @@ Snakemake reads the dependencies automatically and solves in the correct order: 
 **What the job does:**
 - Calls `snakemake solve_all` which solves all 4 P0 scenarios
 - Runs 2 scenarios in parallel at a time (`solver_slots=2`): first P0_BASE + P0_CT simultaneously, then P0_BASE_R + P0_CT_R simultaneously (the _R scenarios depend on the base results)
-- Resources: partition=standard, 14-day time limit, 200 GB RAM, 32 CPUs (≈16 threads per Gurobi instance)
+- Resources: partition=standard, 14-day time limit, 64 GB RAM, 32 CPUs (32 threads for Gurobi)
 - Gurobi license: `/home/users/a/agma/gurobi.lic`
 
 **Before submitting — checklist:**
@@ -757,10 +757,10 @@ Head job starts (1 node, 8 GB — just Snakemake)
   → submitted as small jobs per scenario, run in parallel, finish in minutes
 
   Solve wave 1 — all independent scenarios at the same time:
-    Node A: P0_BASE   (200 GB, 32 CPUs)
-    Node B: P0_CT     (200 GB, 32 CPUs)
-    Node C: P1_BASE   (200 GB, 32 CPUs)
-    Node D: P1_CT     (200 GB, 32 CPUs)
+    Node A: P0_BASE   (64 GB, 32 CPUs)
+    Node B: P0_CT     (64 GB, 32 CPUs)
+    Node C: P1_BASE   (64 GB, 32 CPUs)
+    Node D: P1_CT     (64 GB, 32 CPUs)
 
   Solve wave 2 — starts automatically when wave 1 finishes:
     Node E: P0_BASE_R  (waits for P0_BASE solved.nc)
@@ -774,10 +774,10 @@ Head job starts (1 node, 8 GB — just Snakemake)
 The `_R` scenarios depend on their base scenario (P0_BASE_R needs P0_BASE), so wave 2 starts as soon as the relevant base is done — not all at once at the end.
 
 **SLURM resources per solve job** (set in Snakefile `prepare_and_solve_network` rule):
-- Memory: 200 GB
-- CPUs: 32 (Gurobi uses all available threads)
-- Max runtime: 14 days
-- Account: `ensys`, Partition: `standard`
+- Memory: 64 GB
+- CPUs: 32 (Gurobi uses all 32 threads)
+- Max runtime: 13 days
+- Partition: `standard`
 
 **Before submitting — checklist:**
 - [ ] `run_scenario = 1` for all 8 P0/P1 scenarios in `scenarios_to_run.xlsx`
@@ -802,12 +802,14 @@ screen -S pypsa
 
 **Step 3 — run Snakemake directly on the frontend:**
 ```bash
-cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "mem_mb=16000" "runtime=120" "slurm_mail_type=END,FAIL" "slurm_mail_user=agatha.majcher@tu-berlin.de" --resources solver_slots=2 --jobs 16 --latency-wait 120 --rerun-incomplete -F
+cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "mem_mb=16000" "runtime=120" "slurm_mail_type=END,FAIL" --resources solver_slots=2 --jobs 16 --latency-wait 15 --rerun-incomplete
 ```
 
 You should see `Submitted job ... with SLURM jobid ...` lines appearing immediately.
 
-> **Note on `--constraint=wrh`:** Adding `slurm_extra='--constraint=wrh'` to `--default-resources` causes a quoting issue in the SLURM executor and jobs are silently not submitted (squeue stays empty). Leave it out for now — `standard` partition works fine. If wrh nodes are needed later, the constraint can be added via a Snakemake profile instead.
+> **Why `--constraint=wrh` is required:** The `standard` partition contains two node generations. `node[025-130]` (Xeon E5, HDD) can't access `/beegfs/home` reliably — `build_topology` hangs there for the full 120-min timeout with zero output. `node[165-200]` (AMD EPYC 7543, NVMe, feature `wrh`) runs `build_topology` in ~47 s. Without the constraint, SLURM assigns old nodes at random and half the preprocessing jobs will timeout.
+> 
+> **Quoting note:** The `slurm_extra` value must use inner single quotes inside outer double quotes exactly as shown above. An older note in this doc said this caused "jobs silently not submitted" — that was a different quoting bug. The syntax above is correct.
 
 **Step 4 — detach and log out safely:**
 ```
@@ -833,3 +835,60 @@ screen -r pypsa   # then Ctrl+C
 # Then cancel all remaining SLURM jobs
 scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
 ```
+
+---
+
+### Gurobi WLS: stuck sessions ("Overage for too long")
+
+**Symptom:** Every solve attempt fails immediately with:
+```
+GurobiError: Overage for too long, 4 active sessions and over the baseline for X minutes
+```
+even though `squeue --me` is empty.
+
+**Cause:** SLURM jobs were killed (OOM, timeout, Ctrl+C) without Gurobi releasing its WLS license sessions cleanly. The WLS server still counts them as active.
+
+**Fix — release sessions via the Gurobi portal:**
+1. Go to `https://license.gurobi.com` and log in
+2. Navigate to your WLS license (ID: `938810`)
+3. Find "Active Sessions" → terminate all sessions
+
+**Verify Gurobi is clear before restarting:**
+```bash
+export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
+python3 -c "import gurobipy; m = gurobipy.Model(); print('Gurobi OK')"
+```
+
+**Prevention:** always use `--resources solver_slots=2` so at most 2 Gurobi sessions run in parallel. The academic WLS baseline is 2 concurrent sessions — exceeding it triggers overage.
+
+---
+
+### Alternative: salloc (interactive node — no SLURM overhead)
+
+Use this when BeeGFS metadata is slow cluster-wide, or when the run is short enough that SLURM job-submission overhead dominates (e.g. LC-2190h test runs that take ~3 min locally).
+
+**Request one EPYC node interactively:**
+```bash
+salloc -N 1 -c 64 --mem=100G --partition=standard -t 1:30:00
+```
+SLURM queues this request and gives you a shell on the node once allocated.
+
+**Then run Snakemake locally on that node (no SLURM executor):**
+```bash
+export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
+cd /beegfs/scratch/agma/pypsa-rsa
+/home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all -j 2 --resources solver_slots=2 --rerun-incomplete -F
+```
+
+- `-j 2`: 2 jobs in parallel → 2 × 32 threads = 64 cores = full EPYC node
+- No `--executor slurm`, no `--latency-wait` overhead
+- All preprocessing + solve runs locally on the node, no per-step queue waits
+- Node type: AMD EPYC 7543, NVMe SSD (node[165-200]) — fastest available
+
+**When to use salloc vs SLURM executor:**
+| | salloc | SLURM executor |
+|---|---|---|
+| Short runs (< 2h total) | ✅ better | overhead dominates |
+| Long runs (> 4h per solve) | wastes node time | ✅ better |
+| BeeGFS metadata issues | ✅ less affected | slow for all steps |
+| Production LC 8760h runs | — | ✅ correct tool |

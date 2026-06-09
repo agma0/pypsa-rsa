@@ -252,7 +252,7 @@ solver:
     Method: 2
     BarConvTol: 1.e-5
     Crossover: 0
-    Threads: 4
+    Threads: 32
 
 plotting:
   carbon_tax_rate_2030: 462  # R/tCO2 — used for CO2 cost bar in plots

@@ -7,6 +7,13 @@ import re
 import socket
 import numpy as np
 
+PYPSA_ENV = "/beegfs/home/users/a/agma/.pixi/envs/pypsa-rsa"
+shell.prefix(
+    f"export PROJ_DATA={PYPSA_ENV}/share/proj; "
+    f"export GDAL_DATA={PYPSA_ENV}/share/gdal; "
+    f"export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic; "
+)
+
 scenarios = pd.read_excel(
     os.path.join("scenarios",config["scenarios"]["working_folder"], config["scenarios"]["setup"]),
     sheet_name="scenario_definition", 
@@ -33,7 +40,7 @@ rule build_topology:
         supply_regions = config["data_paths"]["bundle"] + "/rsa_supply_regions.gpkg",
         existing_lines = config["data_paths"]["bundle"] + "/bundle/Existing_Lines.shp",
         planned_lines = config["data_paths"]["bundle"] + "/tdp_digitised/TDP_2023_32.shp",
-        gdp_pop_data = config["data_paths"]["bundle"] + "/bundle/Mesozones.shp",        
+        gdp_pop_data = config["data_paths"]["bundle"] + "/bundle/Mesozones.shp",
     output:
         buses = "resources/" + config["scenarios"]["working_folder"] + "/{scenario}/buses.geojson",
         lines = "resources/" + config["scenarios"]["working_folder"] + "/{scenario}/lines.geojson",
@@ -98,7 +105,7 @@ rule base_network:
     input:
         buses = "resources/" + config["scenarios"]["working_folder"] + "/{scenario}/buses.geojson",
         lines = "resources/" + config["scenarios"]["working_folder"] + "/{scenario}/lines.geojson",
-    output: 
+    output:
         "networks/" + config["scenarios"]["working_folder"] + "/{scenario}/base-network.nc",
     script: "scripts/base_network.py"
 
@@ -110,7 +117,7 @@ rule add_electricity:
         load = config["data_paths"]["bundle"] + "/bundle/SystemEnergy2009_22.csv",
         eskom_profiles = config["data_paths"]["bundle"] + "/eskom_pu_profiles.csv",
         renewable_profiles = config["data_paths"]["bundle"] + "/bundle/renewable_profiles_dcac_125_mar26.nc",
-    output: 
+    output:
         network = "networks/" + config["scenarios"]["working_folder"] + "/{scenario}/elec.nc",
         gen_emissions = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/generator_emissions.csv",
         gen_stand_by_emissions = "results/" + config["scenarios"]["working_folder"] + "/{scenario}/outputs/generator_stand_by_emissions.csv",
@@ -138,7 +145,5 @@ rule prepare_and_solve_network:
     threads: 32
     resources:
         solver_slots=1,
-        mem_mb=256000,
-        runtime=18720,
     script:
         "scripts/prepare_and_solve_network.py"
