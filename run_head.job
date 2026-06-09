@@ -14,12 +14,9 @@ export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic
 cd /beegfs/scratch/agma/pypsa-rsa
 mkdir -p logs
 
-MAMBA_EXE='/beegfs/home/users/a/agma/.pixi/envs/micromamba/bin/micromamba'
-MAMBA_ROOT='/beegfs/home/users/a/agma/.local/share/mamba'
-PYPSA_ENV='/beegfs/home/users/a/agma/.pixi/envs/pypsa-rsa'
+SNAKEMAKE='/beegfs/scratch/agma/envs/pypsa-rsa/bin/snakemake'
 
-$MAMBA_EXE run --root-prefix $MAMBA_ROOT -p $PYPSA_ENV \
-    snakemake solve_all \
+$SNAKEMAKE solve_all -F \
     --executor slurm \
     --default-resources \
         "slurm_partition=standard" \
@@ -27,7 +24,7 @@ $MAMBA_EXE run --root-prefix $MAMBA_ROOT -p $PYPSA_ENV \
         "runtime=120" \
         "slurm_mail_type=END,FAIL" \
         "slurm_mail_user=agatha.majcher@tu-berlin.de" \
-    --resources solver_slots=1 \
+    --resources solver_slots=2 \
     --jobs 16 \
     --latency-wait 120 \
     --rerun-incomplete \

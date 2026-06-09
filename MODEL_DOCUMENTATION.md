@@ -795,42 +795,40 @@ The `_R` scenarios depend on their base scenario (P0_BASE_R needs P0_BASE), so w
 scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
 ```
 
-**Step 2 — start a screen session:**
+**Step 2 — start a tmux session:**
 ```bash
-screen -S pypsa
+tmux new -s pypsa
 ```
 
 **Step 3 — run Snakemake directly on the frontend:**
 ```bash
-cd /beegfs/scratch/agma/pypsa-rsa && export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic && /home/users/a/agma/.pixi/envs/pypsa-rsa/bin/snakemake solve_all --executor slurm --default-resources "slurm_partition=standard" "mem_mb=16000" "runtime=120" "slurm_mail_type=END,FAIL" --resources solver_slots=2 --jobs 16 --latency-wait 15 --rerun-incomplete
+bash /beegfs/scratch/agma/pypsa-rsa/run_head.job
 ```
 
 You should see `Submitted job ... with SLURM jobid ...` lines appearing immediately.
 
-> **Why `--constraint=wrh` is required:** The `standard` partition contains two node generations. `node[025-130]` (Xeon E5, HDD) can't access `/beegfs/home` reliably — `build_topology` hangs there for the full 120-min timeout with zero output. `node[165-200]` (AMD EPYC 7543, NVMe, feature `wrh`) runs `build_topology` in ~47 s. Without the constraint, SLURM assigns old nodes at random and half the preprocessing jobs will timeout.
-> 
-> **Quoting note:** The `slurm_extra` value must use inner single quotes inside outer double quotes exactly as shown above. An older note in this doc said this caused "jobs silently not submitted" — that was a different quoting bug. The syntax above is correct.
+> **Why `--constraint=wrh` is required:** The `standard` partition contains two node generations. `node[025-130]` (Xeon E5, HDD) are slow at beegfs metadata operations — Python startup from `/beegfs/scratch` takes 60+ s on these nodes. `node[165-200]` (AMD EPYC 7543, NVMe SSD, feature `wrh`) starts Python in <1 s. Without the constraint, SLURM assigns nodes at random and jobs on old nodes will timeout.
 
 **Step 4 — detach and log out safely:**
 ```
-Ctrl+A  D
+Ctrl+B  D
 ```
-The screen session keeps running even after you disconnect.
+The tmux session keeps running even after you disconnect.
 
 **Monitor child jobs:**
 ```bash
 squeue --me
 ```
 
-**Reattach to the screen session:**
+**Reattach to the tmux session:**
 ```bash
-screen -r pypsa
+tmux attach -t pypsa
 ```
 
 **Cancel everything (Snakemake + all child jobs):**
 ```bash
 # First reattach and Ctrl+C to stop Snakemake
-screen -r pypsa   # then Ctrl+C
+tmux attach -t pypsa   # then Ctrl+C
 
 # Then cancel all remaining SLURM jobs
 scancel $(squeue --me -h -o "%i" | tr '\n' ' ')

@@ -214,10 +214,14 @@ def calc_inter_region_lines(lines, line_config):
 
         return inter_region_lines
 
+    # pandas 3.0 removed group keys from apply() groups; use explicit iteration instead
+    n1_parts = [apply_n1_approximation(grp) for _, grp in lines.groupby(['bus0', 'bus1'])]
+    n1_lines = pd.concat(n1_parts) if n1_parts else lines.iloc[:0]
+
     inter_region_lines = pd.concat(
         [
-            group_inter_region(lines,""), 
-            group_inter_region(lines.groupby(['bus0', 'bus1'], group_keys=False).apply(apply_n1_approximation),"_n1")
+            group_inter_region(lines,""),
+            group_inter_region(n1_lines, "_n1")
         ],axis=1)
 
     return inter_region_lines

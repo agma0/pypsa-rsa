@@ -844,6 +844,14 @@ if __name__ == "__main__":
     import pypsa
     config = snakemake.config
 
+    import os
+    _sc_df = pd.read_excel(
+        os.path.join("scenarios", config["scenarios"]["working_folder"], config["scenarios"]["setup"]),
+        sheet_name="scenario_definition", index_col=0
+    )
+    _sc_row = _sc_df[_sc_df["scenario"] == snakemake.wildcards.scenario]
+    _options = str(_sc_row["options"].iloc[0]) if len(_sc_row) > 0 else ""
+
     n = pypsa.Network(snakemake.input.network)
     n.loads["carrier"] = n.loads.bus.map(n.buses.carrier) + " load"
     n.stores["carrier"] = n.stores.bus.map(n.buses.carrier)
@@ -867,7 +875,7 @@ if __name__ == "__main__":
     )
 
     display_year = n.investment_periods[-1] if (n.multi_invest and len(n.investment_periods) > 0) else int(str(n.snapshots[0])[:4])
-    ax.set_title(f"{snakemake.wildcards.scenario}  |  {display_year}", fontsize=11, pad=8)
+    ax.set_title(f"{snakemake.wildcards.scenario}  |  {_options}  |  {display_year}", fontsize=11, pad=8)
 
     fig.savefig(snakemake.output.only_map, dpi=150, bbox_inches="tight")
 
@@ -908,7 +916,7 @@ if __name__ == "__main__":
     fig_pathway = plot_pathway(
         n, config["plotting"],
         gen_emissions_df=gen_em,
-        scenario_name=scenario,
+        scenario_name=f"{scenario}  |  {_options}",
         ct_rates=ct_rates,
     )
     fig_pathway.savefig(snakemake.output.pathway, dpi=150, bbox_inches="tight")
