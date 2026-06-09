@@ -7,12 +7,13 @@ import re
 import socket
 import numpy as np
 
-PYPSA_ENV = "/home/users/a/agma/.pixi/envs/pypsa-rsa"
+PYPSA_ENV = "/beegfs/scratch/agma/envs/pypsa-rsa"
 shell.prefix(
     f"export PROJ_DATA={PYPSA_ENV}/share/proj; "
     f"export PROJ_LIB={PYPSA_ENV}/share/proj; "
     f"export GDAL_DATA={PYPSA_ENV}/share/gdal; "
     f"export PROJ_NETWORK=OFF; "
+    f"export PYTHONUNBUFFERED=1; "
     f"export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic; "
 )
 
