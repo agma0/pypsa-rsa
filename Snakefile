@@ -7,10 +7,12 @@ import re
 import socket
 import numpy as np
 
-PYPSA_ENV = "/beegfs/home/users/a/agma/.pixi/envs/pypsa-rsa"
+PYPSA_ENV = "/home/users/a/agma/.pixi/envs/pypsa-rsa"
 shell.prefix(
     f"export PROJ_DATA={PYPSA_ENV}/share/proj; "
+    f"export PROJ_LIB={PYPSA_ENV}/share/proj; "
     f"export GDAL_DATA={PYPSA_ENV}/share/gdal; "
+    f"export PROJ_NETWORK=OFF; "
     f"export GRB_LICENSE_FILE=/home/users/a/agma/gurobi.lic; "
 )
 
@@ -145,5 +147,6 @@ rule prepare_and_solve_network:
     threads: 32
     resources:
         solver_slots=1,
+        mem_mb=64000,
     script:
         "scripts/prepare_and_solve_network.py"

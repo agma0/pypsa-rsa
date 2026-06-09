@@ -4924,3 +4924,30 @@ Set parameter LicenseID to value 938810
 Set parameter LogFile to value "gurobi.log"
 Using license file /home/users/a/agma/gurobi.lic
 Academic license 938810 - for non-commercial use only - registered to ag___@tu-berlin.de
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  9 13:07:58 2026
+
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 938810
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/users/a/agma/gurobi.lic
+Academic license 938810 - for non-commercial use only - registered to ag___@tu-berlin.de
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  9 13:15:58 2026
+
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 938810
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/users/a/agma/gurobi.lic
+Academic license 938810 - for non-commercial use only - registered to ag___@tu-berlin.de
+
+Gurobi 12.0.2 (linux64, gurobi_cl) logging started Tue Jun  9 13:16:22 2026
+
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 938810
+Set parameter LogFile to value "gurobi.log"
+Using license file /home/users/a/agma/gurobi.lic
+Academic license 938810 - for non-commercial use only - registered to ag___@tu-berlin.de
