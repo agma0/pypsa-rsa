@@ -708,6 +708,10 @@ tail -n 50 $(ls -t /beegfs/scratch/agma/pypsa-rsa/logs/snakemake_head_*.log | he
 ```bash
 tmux attach -t pypsa   # then Ctrl+C to stop Snakemake
 
+or
+
+tmux kill-session -t pypsa
+
 # Cancel all remaining child jobs:
 scancel $(squeue --me -h -o "%i" | tr '\n' ' ')
 ```

@@ -562,7 +562,7 @@ if __name__ == "__main__":
     solve_network(n, n.snapshots, full_outages_pu_max)
 
     n.export_to_netcdf(snakemake.output[0])
-    n.statistics().to_csv(snakemake.output[1])
+    n.statistics(drop_zero=False).to_csv(snakemake.output[1])
     n.generators.to_csv(snakemake.output[2])
     n.storage_units.to_csv(snakemake.output[3])
     get_capacity_value(n).to_csv(snakemake.output[4])
