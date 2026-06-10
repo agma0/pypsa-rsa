@@ -367,11 +367,12 @@ def add_ct_reinvestment_constraint(n, sns, SCENARIO_SETUP, snakemake):
     # SCENARIO_SETUP is a pandas Series — scenario name is .name, not a key
     base_scenario  = SCENARIO_SETUP.name.replace("_R", "")
     working_folder = snakemake.config["scenarios"]["working_folder"]
+    options        = snakemake.wildcards.options
     base_net_path  = os.path.join(
-        "results", working_folder, base_scenario, "networks", "solved.nc"
+        "results", working_folder, base_scenario, options, "networks", "solved.nc"
     )
     base_emis_path = os.path.join(
-        "results", working_folder, base_scenario, "outputs", "generator_emissions.csv"
+        "results", working_folder, base_scenario, options, "outputs", "generator_emissions.csv"
     )
 
     # Step 2: load reference network and emission factors (pypsa imported at module level)
@@ -477,8 +478,9 @@ def add_ct_reinvestment_constraint_multiyear(n, sns, SCENARIO_SETUP, snakemake):
 
     # Base scenario paths
     base_scenario  = SCENARIO_SETUP.name.replace("_R", "")
-    base_net_path  = os.path.join("results", working_folder, base_scenario, "networks", "solved.nc")
-    base_emis_path = os.path.join("results", working_folder, base_scenario, "outputs", "generator_emissions.csv")
+    options        = snakemake.wildcards.options
+    base_net_path  = os.path.join("results", working_folder, base_scenario, options, "networks", "solved.nc")
+    base_emis_path = os.path.join("results", working_folder, base_scenario, options, "outputs", "generator_emissions.csv")
 
     n_base = pypsa.Network(base_net_path)
     gen_emissions = pd.read_csv(base_emis_path, index_col=0)

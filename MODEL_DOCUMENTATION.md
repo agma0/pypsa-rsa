@@ -738,6 +738,23 @@ scp -r agma@gateway.hpc.tu-berlin.de:/beegfs/scratch/agma/pypsa-rsa/results ~/Do
 
 ---
 
+### Test vs. Production runs: keeping results separate
+
+**Problem:** If you debug with 182h test runs, they overwrite the LC `solved.nc` files. You can then never safely remove `-F`, because Snakemake would see the 182h outputs as "up to date" and skip the LC solve.
+
+**Solution:** Use a different `working_folder` in `config.yaml` for test runs:
+
+```yaml
+# config.yaml — switch before each run type:
+scenarios:
+  working_folder: Coal_Flexibilisation_test   # ← for 182h debug runs
+  working_folder: Coal_Flexibilisation         # ← for LC production runs
+```
+
+Test results land in `results/Coal_Flexibilisation_test/` and never touch `results/Coal_Flexibilisation/`. Once the LC run completes cleanly, you can remove `-F` from `run_head.job` and Snakemake will correctly skip already-solved scenarios on reruns.
+
+---
+
 ### Gurobi WLS: stuck sessions ("Overage for too long")
 
 **Symptom:** Every solve attempt fails immediately with:
