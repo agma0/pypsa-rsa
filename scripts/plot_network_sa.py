@@ -734,26 +734,30 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
         ax.set_ylabel(ylabel); ax.set_title(title)
         ax.legend(loc="upper left", fontsize=7, ncol=2)
 
-    # Panels 1–2: capacity & generation (unchanged)
+    # Panels 1–2: capacity & generation
     stacked_bars(ax_cap, cap_df,  "Installed Capacity [GW]", "Capacity")
+    ax_cap.set_ylim(0, 200)
     stacked_bars(ax_gen, gen_df,  "Generation [TWh/a]",      "Generation")
+    ax_gen.set_ylim(0, 400)
 
     # Panel 3: system cost stacked by carrier
     stacked_bars(ax_cost, cost_carrier_df, "System Cost [bn ZAR/a]", "System Cost by Carrier")
+    ax_cost.set_ylim(0, 400)
 
     # Panel 4: CO₂
     ax_co2.bar(x, co2_s.values, width=bw, color="#555555")
     ax_co2.set_xlim(xlim)
     ax_co2.set_xticks(x); ax_co2.set_xticklabels(periods, rotation=45)
     ax_co2.set_ylabel("CO₂ Emissions [MtCO₂/a]"); ax_co2.set_title("CO₂ Emissions")
+    ax_co2.set_ylim(0, 220)
 
     # Panel 5: emissions intensity
     ax_ei.plot(x, ei_s.values, color="#e74c3c", marker="o", linewidth=2)
     ax_ei.set_xlim(xlim)
     ax_ei.set_xticks(x); ax_ei.set_xticklabels(periods, rotation=45)
-    ax_ei.set_ylabel("Emissions Intensity [tCO₂/MWh]")
+    ax_ei.set_ylabel("Emissions Intensity [kgCO₂/MWh]")
     ax_ei.set_title("Emissions Intensity")
-    ax_ei.set_ylim(bottom=0)
+    ax_ei.set_ylim(0, 1000)
 
     # Panel 6: fossil capacity + RE curtailment
     fossil_carriers = [("coal", "Coal"), ("ccgt_steam", "CCGT"), ("ocgt", "OCGT/Gas")]
@@ -767,11 +771,13 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     ax_coal.set_ylabel("Fossil Capacity [GW]")
     ax_coal.set_title("Fossil Capacity & RE Curtailment")
     ax_coal.set_xticks(x); ax_coal.set_xticklabels(periods, rotation=45)
+    ax_coal.set_ylim(0, 50)
     ax_coal2 = ax_coal.twinx()
     ax_coal2.plot(x, curtail_s.reindex(periods).fillna(0).values,
                   color="#e67e22", marker="s", linewidth=2, label="RE curtailment")
     ax_coal2.set_ylabel("RE Curtailment [TWh/a]", color="#e67e22")
     ax_coal2.tick_params(axis="y", labelcolor="#e67e22")
+    ax_coal2.set_ylim(0, 180)
     h1, l1 = ax_coal.get_legend_handles_labels()
     h2, l2 = ax_coal2.get_legend_handles_labels()
     ax_coal.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper center", ncol=2)
@@ -802,34 +808,38 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     ax_stor.set_xticks(x); ax_stor.set_xticklabels(periods, rotation=45)
     ax_stor.set_ylabel("Storage Power [GW]")
     ax_stor.set_title("Storage (Battery & PHS)")
+    ax_stor.set_ylim(0, 100)
     ax_stor2 = ax_stor.twinx()
     ax_stor2.plot(x, stor_energy_s.reindex(periods).fillna(0).values,
-                  color="#c0392b", marker="^", linewidth=2, linestyle="--", label="Energy [GWh]")
-    ax_stor2.set_ylabel("Battery Energy [GWh]", color="#c0392b")
+                  color="#c0392b", marker="^", linewidth=2, linestyle="--", label="Storage Energy [GWh]")
+    ax_stor2.set_ylabel("Storage Energy [GWh]", color="#c0392b")
     ax_stor2.tick_params(axis="y", labelcolor="#c0392b")
+    ax_stor2.set_ylim(0, 450)
     h1, l1 = ax_stor.get_legend_handles_labels()
     h2, l2 = ax_stor2.get_legend_handles_labels()
     ax_stor.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper left", ncol=2)
 
     # Panel 8: new build per period [GW] + CT revenue lines
     stacked_bars(ax_new, newbuild_df, "New Build [GW]", "New Build per Period & CT Revenue")
+    ax_new.set_ylim(0, 100)
     ax_new2 = ax_new.twinx()
+    ax_new2.set_ylabel("CT Revenue [bn ZAR/a]", color="#8e44ad")
+    ax_new2.tick_params(axis="y", labelcolor="#8e44ad")
+    ax_new2.set_ylim(0, 100)
+    ax_new2.plot(x, ct_rev_s.values, color="#8e44ad", marker="o",
+                 linewidth=2, label="CT Revenue")
     if ct_rev_s.sum() > 0:
-        ax_new2.plot(x, ct_rev_s.values, color="#8e44ad", marker="o",
-                     linewidth=2, label="CT Revenue")
         ax_new2.plot(x, reinvest_s.values, color="#8e44ad", marker="o",
                      linewidth=2, linestyle="--",
                      label=f"Reinvested ({int(REINVEST_FRACTION * 100)}%)")
-        ax_new2.set_ylabel("CT Revenue [bn ZAR/a]", color="#8e44ad")
-        ax_new2.tick_params(axis="y", labelcolor="#8e44ad")
         ax_new2.annotate(
             f"50% of CT revenues reinvested in RE + storage",
             xy=(0.98, 0.02), xycoords="axes fraction",
             ha="right", va="bottom", fontsize=7, color="#8e44ad", style="italic",
         )
-        h1, l1 = ax_new.get_legend_handles_labels()
-        h2, l2 = ax_new2.get_legend_handles_labels()
-        ax_new.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left", ncol=2)
+    h1, l1 = ax_new.get_legend_handles_labels()
+    h2, l2 = ax_new2.get_legend_handles_labels()
+    ax_new.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left", ncol=2)
 
     fig.tight_layout()
     return fig
