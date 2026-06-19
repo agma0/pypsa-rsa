@@ -562,7 +562,33 @@ if __name__ == "__main__":
     solve_network(n, n.snapshots, full_outages_pu_max)
 
     n.export_to_netcdf(snakemake.output[0])
-    n.statistics(drop_zero=False).to_csv(snakemake.output[1])
+    # network_stats.csv: known to fail for CT scenarios at LC (8760h) due to PyPSA
+    # capacity_factor MultiIndex bug. Writes empty CSV on failure so solved.nc is preserved.
+    try:
+        n.statistics(drop_zero=True).to_csv(snakemake.output[1])
+    except Exception as _e:
+        logging.warning(f"n.statistics() failed: {_e} — writing empty network_stats.csv")
+        pd.DataFrame().to_csv(snakemake.output[1])
+    # _stat_funcs = [
+    #     n.statistics.optimal_capacity, n.statistics.installed_capacity,
+    #     n.statistics.supply, n.statistics.withdrawal, n.statistics.energy_balance,
+    #     n.statistics.transmission, n.statistics.capacity_factor,
+    #     n.statistics.curtailment, n.statistics.capex, n.statistics.opex,
+    #     n.statistics.revenue, n.statistics.market_value,
+    # ]
+    # _stat_res = {}
+    # for _f in _stat_funcs:
+    #     try:
+    #         _df = _f(drop_zero=False)
+    #         _stat_res[_df.attrs["name"]] = _df
+    #     except Exception as _e:
+    #         logging.warning(f"n.statistics.{_f.__name__}() failed: {_e} — skipping")
+    # if _stat_res:
+    #     _idx = pd.Index(set.union(*[set(_d.index) for _d in _stat_res.values()]))
+    #     _stat_res = {k: v.reindex(_idx, fill_value=0.0) for k, v in _stat_res.items()}
+    #     pd.concat(_stat_res, axis=1).sort_index(axis=0).to_csv(snakemake.output[1])
+    # else:
+    #     pd.DataFrame().to_csv(snakemake.output[1])
     n.generators.to_csv(snakemake.output[2])
     n.storage_units.to_csv(snakemake.output[3])
     get_capacity_value(n).to_csv(snakemake.output[4])

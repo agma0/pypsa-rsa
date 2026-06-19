@@ -804,4 +804,35 @@ pulp/apis/gurobi_api.py:238: UserWarning: GUROBI error: Overage for too long, 3 
 
 ---
 
+### Weitere Beachtung nötig: Boolean-Felder in scenarios_to_run.xlsx
+
+**Betroffene Felder:** `unit_committment`, `endogenous_coal_decom`, `variable_storage_vom`
+
+**Hintergrund:** Meridian (ursprünglicher Code) hat diese Felder mit `True`/`False` befüllt. Im Coal-Flexibilisation-Projekt werden stattdessen `1`/`0` verwendet — das ist technisch äquivalent, weil Excel booleans intern als 1/0 speichert.
+
+**Das eigentliche Problem — inkonsistente Code-Checks:**
+
+`_helpers.py` ersetzt alle leeren Zellen (NaN) pauschal mit dem String `"none"`:
+```python
+return scenario_setup.fillna("none")
+```
+
+Im Code gibt es zwei verschiedene Arten diese Felder zu prüfen:
+
+| Datei | Check | leer (→ `"none"`) | `0` | `1` |
+|---|---|---|---|---|
+| `add_electricity.py` | `== True` | False ✓ | False ✓ | True ✓ |
+| `prepare_and_solve_network.py` | `if ...:` (truthy) | **True ✗** | False ✓ | True ✓ |
+| `custom_constraints.py` | `if ...:` (truthy) | **True ✗** | False ✓ | True ✓ |
+
+`"none"` ist in Python ein nicht-leerer String und daher **truthy** — d.h. eine leere Zelle in der Excel wird von den truthy-Checks fälschlicherweise als "aktiviert" interpretiert.
+
+**Konsequenz:** Szenarien die `unit_committment` oder `endogenous_coal_decom` leer lassen (NaN) statt explizit `0` einzutragen, lösen in `prepare_and_solve_network.py` und `custom_constraints.py` den jeweiligen Code-Block trotzdem aus → führt zu `KeyError: 'Generator-status'`.
+
+**Workaround (aktuell):** Immer explizit `0` in die Zelle eintragen, nie leer lassen.
+
+**Saubere Lösung (noch nicht umgesetzt):** Die truthy-Checks in `prepare_and_solve_network.py` (Zeilen 469, 488) und `custom_constraints.py` (Zeile 314) auf `== True` oder `== 1` umstellen — konsistent mit `add_electricity.py`. Dann sind leere Zellen sicher.
+
+---
+
 

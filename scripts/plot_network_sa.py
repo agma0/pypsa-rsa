@@ -265,23 +265,23 @@ def plot_map(n, opts, ax=None, attribute="p_nom", boundaries=None, supply_region
     ax.add_artist(l_width)
 
     # 3) Netz: expanded (dark) vs existing (light)
-    net_handles = [
-        plt.Line2D([0], [0], color=color_exp, linewidth=3),
-        plt.Line2D([0], [0], color=color_cur, linewidth=3),
-    ]
-    net_labels = ["Expanded", "Existing"]
-    l1_1 = ax.legend(
-        net_handles,
-        net_labels,
-        loc="upper left",
-        bbox_to_anchor=(0.46, 1.01),
-        frameon=False,
-        labelspacing=0.8,
-        fontsize=7,
-        title="Grid",
-        title_fontsize=7,
-    )
-    ax.add_artist(l1_1)
+    # net_handles = [
+    #     plt.Line2D([0], [0], color=color_exp, linewidth=3),
+    #     plt.Line2D([0], [0], color=color_cur, linewidth=3),
+    # ]
+    # net_labels = ["Expanded", "Existing"]
+    # l1_1 = ax.legend(
+    #     net_handles,
+    #     net_labels,
+    #     loc="upper left",
+    #     bbox_to_anchor=(0.46, 1.01),
+    #     frameon=False,
+    #     labelspacing=0.8,
+    #     fontsize=7,
+    #     title="Grid",
+    #     title_fontsize=7,
+    # )
+    # ax.add_artist(l1_1)
 
     # carriers present in data, sorted by CARRIER_ORDER
     present = set(bus_sizes.index.get_level_values(1).unique())

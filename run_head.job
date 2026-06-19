@@ -16,7 +16,7 @@ mkdir -p logs
 
 SNAKEMAKE='/beegfs/scratch/agma/envs/pypsa-rsa/bin/snakemake'
 
-$SNAKEMAKE solve_all -F \
+$SNAKEMAKE solve_all \
     --executor slurm \
     --default-resources \
         "slurm_partition=standard" \
@@ -28,4 +28,6 @@ $SNAKEMAKE solve_all -F \
     --jobs 16 \
     --latency-wait 120 \
     --rerun-incomplete \
+    -F \
+    --keep-going \
     2>&1 | tee logs/snakemake_head_$(date +%Y%m%dT%H%M%S).log

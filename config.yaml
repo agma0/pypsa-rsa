@@ -252,6 +252,9 @@ solver:
     Method: 2
     BarConvTol: 1.e-5
     Crossover: 0
+    AggFill: 0
+    PreDual: 0
+    GURO_PAR_BARDENSETHRESH: 200
     Threads: 32
 
 plotting:
