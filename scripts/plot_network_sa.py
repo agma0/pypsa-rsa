@@ -25,7 +25,6 @@ import pandas as pd
 import geopandas as gpd
 from _helpers import (
     aggregate_costs,
-    aggregate_p,
 )
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.patches import Circle, Ellipse
@@ -320,7 +319,23 @@ def plot_total_energy_pie(n, opts, ax=None):
 
     ax.set_title("Total Generation \nper Technology", fontdict=dict(fontsize="medium"))
 
-    e_primary = aggregate_p(n).drop("load", errors="ignore")
+    # Only the final investment period (2030) — aggregate_p(n) would otherwise
+    # sum generation across all periods (e.g. 2025+2030) for multi_invest networks.
+    target_year = n.investment_periods[-1] if (n.multi_invest and len(n.investment_periods) > 0) else None
+
+    def _year_sum(df):
+        if target_year is not None and isinstance(df.index, pd.MultiIndex):
+            df = df.loc[target_year]
+        return df.sum()
+
+    e_primary = pd.concat(
+        [
+            _year_sum(n.generators_t.p).groupby(n.generators.carrier).sum(),
+            _year_sum(n.storage_units_t.p).groupby(n.storage_units.carrier).sum(),
+            _year_sum(n.stores_t.p).groupby(n.stores.carrier).sum(),
+            -_year_sum(n.loads_t.p).groupby(n.loads.carrier).sum(),
+        ]
+    ).drop("load", errors="ignore")
     e_primary = group_carriers(e_primary)
     e_primary = e_primary.loc[e_primary > 0]
     e_primary = e_primary[e_primary.index.isin(opts["tech_colors"])]
@@ -394,7 +409,8 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
 
     # bar x-positions: Capital, Marginal, CO2, Grid  width=0.22
     bw = 0.22
-    x_cap, x_marg, x_co2, x_grid = 0.15, 0.42, 0.69, 0.96
+    # x_cap, x_marg, x_co2, x_grid = 0.15, 0.42, 0.69, 0.96  # Grid bar disabled, see Bar 4 below
+    x_cap, x_marg, x_co2 = 0.15, 0.42, 0.69
 
     bottom_cap = 0.0
     bottom_marg = 0.0
@@ -457,28 +473,31 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
                         ha="center", va="center", fontsize=7, color="white")
             bottom_co2 += val
 
-    # Bar 4: Grid capital cost — split existing (light blue) vs expanded (dark blue)
-    color_grid_cur = "#aec7e8"   # light blue — matches map existing
-    color_grid_exp = "#1f77b4"   # dark blue  — matches map expanded
-    ext = n.links[n.links.p_nom_extendable]
-    if not ext.empty:
-        existing_grid_fc = (ext.capital_cost * ext.p_nom_min).sum() * 1000
-        expanded_grid_fc = (ext.capital_cost * (ext.p_nom_opt - ext.p_nom_min).clip(lower=0)).sum() * 1000
-    else:
-        existing_grid_fc = grid_fc
-        expanded_grid_fc = 0.0
-    grid_fc = existing_grid_fc + expanded_grid_fc   # update total for summary text
-    existing_rmwh = existing_grid_fc / total_load if total_load > 0 else 0.0
-    expanded_rmwh = expanded_grid_fc / total_load if total_load > 0 else 0.0
-    ax.bar([x_grid], [existing_rmwh], color=color_grid_cur, width=bw, zorder=-1)
-    ax.bar([x_grid], [expanded_rmwh], bottom=existing_rmwh, color=color_grid_exp, width=bw, zorder=-1)
-    print(f"[cost bar] Grid existing={existing_rmwh:.1f} R/MWh, expanded={expanded_rmwh:.1f} R/MWh")
+    # Bar 4: Grid capital cost — disabled, doesn't work correctly (grid cost calc unreliable)
+    # color_grid_cur = "#aec7e8"   # light blue — matches map existing
+    # color_grid_exp = "#1f77b4"   # dark blue  — matches map expanded
+    # ext = n.links[n.links.p_nom_extendable]
+    # if not ext.empty:
+    #     existing_grid_fc = (ext.capital_cost * ext.p_nom_min).sum() * 1000
+    #     expanded_grid_fc = (ext.capital_cost * (ext.p_nom_opt - ext.p_nom_min).clip(lower=0)).sum() * 1000
+    # else:
+    #     existing_grid_fc = grid_fc
+    #     expanded_grid_fc = 0.0
+    # grid_fc = existing_grid_fc + expanded_grid_fc   # update total for summary text
+    # existing_rmwh = existing_grid_fc / total_load if total_load > 0 else 0.0
+    # expanded_rmwh = expanded_grid_fc / total_load if total_load > 0 else 0.0
+    # ax.bar([x_grid], [existing_rmwh], color=color_grid_cur, width=bw, zorder=-1)
+    # ax.bar([x_grid], [expanded_rmwh], bottom=existing_rmwh, color=color_grid_exp, width=bw, zorder=-1)
+    # print(f"[cost bar] Grid existing={existing_rmwh:.1f} R/MWh, expanded={expanded_rmwh:.1f} R/MWh")
 
     ct_rate = opts.get("carbon_tax_rate_2030", 462)
-    ax.set_xticks([x_cap, x_marg, x_co2, x_grid])
-    ax.set_xticklabels(["Capital", "Marginal", f"CO₂\nTax\n({ct_rate} R/t)", "Grid"], fontsize=7)
+    # ax.set_xticks([x_cap, x_marg, x_co2, x_grid])
+    # ax.set_xticklabels(["Capital", "Marginal", f"CO₂\nTax\n({ct_rate} R/t)", "Grid"], fontsize=7)
+    ax.set_xticks([x_cap, x_marg, x_co2])
+    ax.set_xticklabels(["Capital", "Marginal", f"CO₂\nTax\n({ct_rate} R/t)"], fontsize=7)
     ax.set_ylabel("Avg system cost [R/MWh]")
-    ax.set_xlim([0, 1.15])
+    # ax.set_xlim([0, 1.15])
+    ax.set_xlim([0, 0.9])
     ax.set_title("System Cost", fontdict=dict(fontsize="medium"))
     ax.grid(True, axis="y", color="k", linestyle="dotted")
 
@@ -486,7 +505,8 @@ def plot_total_cost_bar(n, opts, ax=None, gen_emissions_df=None, total_emissions
     fc_total = sum(fc.get(c, 0.0) for c in carriers)
     vc_total = sum(vc.get(c, 0.0) for c in carriers)
     co2_total = (co2_cost_bn * 1e9) if co2_cost_bn is not None else 0.0
-    total_all = fc_total + vc_total + grid_fc + co2_total
+    # total_all = fc_total + vc_total + grid_fc + co2_total  # Grid bar disabled
+    total_all = fc_total + vc_total + co2_total
     em_str = f"{total_emissions:.1f} MtCO₂/a" if total_emissions is not None else "n/a"
     ct_str = f"{co2_cost_bn:.0f} bn ZAR/a" if co2_cost_bn is not None else "n/a"
     summary = "\n".join([
@@ -669,39 +689,37 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     stor_by_type_df = pd.DataFrame(stor_by_type_rows).T.fillna(0)
     stor_energy_s   = pd.Series(stor_energy_rows)
 
-    # ── 8. New build per period [GW] by carrier + CT revenue [bn ZAR/a] ────────
+    # ── 8. New build per period [GW] by carrier ──────────────────────────────────
+    # matches new_build_gw() in notebook: no p_nom_extendable filter, raw carrier names
     newbuild_rows = {}
     for y in periods:
         nb = {}
-        # generators
         new_g = n.generators[
             (n.generators.build_year == y)
-            & n.generators.p_nom_extendable
             & (~n.generators.carrier.isin(["load_shedding"]))
         ].copy()
-        new_g["dc"] = new_g["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
-        new_g = new_g[~new_g["dc"].isin(CARRIER_DROP)]
-        for dc, grp in new_g.groupby("dc"):
-            nb[dc] = nb.get(dc, 0.0) + grp["p_nom_opt"].sum() / 1e3
-        # storage_units
-        if not n.storage_units.empty and "build_year" in n.storage_units.columns:
-            new_su = n.storage_units[
-                (n.storage_units.build_year == y)
-                & n.storage_units.p_nom_extendable
-            ].copy()
-            new_su["dc"] = new_su["carrier"].map(lambda c: CARRIER_REMAP.get(c, c))
-            for dc, grp in new_su.groupby("dc"):
-                nb[dc] = nb.get(dc, 0.0) + grp["p_nom_opt"].sum() / 1e3
+        for c, grp in new_g.groupby("carrier"):
+            nb[c] = nb.get(c, 0.0) + grp["p_nom_opt"].sum() / 1e3
+        if not n.storage_units.empty:
+            su_slice = (n.storage_units[n.storage_units.build_year == y]
+                        if "build_year" in n.storage_units.columns
+                        else pd.DataFrame())
+            for c, grp in su_slice.groupby("carrier"):
+                nb[c] = nb.get(c, 0.0) + grp["p_nom_opt"].sum() / 1e3
         newbuild_rows[y] = nb
     newbuild_df = pd.DataFrame(newbuild_rows).T.fillna(0)
 
+    # CT revenue: direct per-year calculation (same approach as p1_pathway_cost_corrected)
     ct_rev_list, reinvest_list = [], []
     for y in periods:
-        if isinstance(ct_rates, dict):
-            rate = ct_rates.get(y, 0.0)
+        rate = ct_rates.get(y, 0) if ct_rates else 0
+        if rate > 0 and gen_emissions_df is not None and y in gen_emissions_df.index and y in ef.index:
+            ef_y   = gen_emissions_df.loc[y]
+            common_y = ef.columns.intersection(ef_y.index)
+            em_t   = (ef.loc[y, common_y] * ef_y[common_y]).sum() / 1000  # tCO2
+            rev    = em_t * rate / 1e9  # bn ZAR/a
         else:
-            rate = float(ct_rates) if ct_rates is not None else 0.0
-        rev = co2_s.get(y, 0.0) * 1e6 * rate / 1e9  # MtCO2 × t/Mt × R/t / bn = bn ZAR/a
+            rev = 0.0
         ct_rev_list.append(rev)
         reinvest_list.append(rev * REINVEST_FRACTION)
     ct_rev_s   = pd.Series(ct_rev_list, index=pd.Index(periods))
@@ -733,23 +751,60 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
         ax.set_xticks(x); ax.set_xticklabels(periods, rotation=45)
         ax.set_ylabel(ylabel); ax.set_title(title)
         ax.legend(loc="upper left", fontsize=7, ncol=2)
+        ax.yaxis.grid(True, color="lightgray", linestyle="-", linewidth=0.5, zorder=0)
+        ax.set_axisbelow(True)
 
     # Panels 1–2: capacity & generation
     stacked_bars(ax_cap, cap_df,  "Installed Capacity [GW]", "Capacity")
-    ax_cap.set_ylim(0, 200)
+    ax_cap.set_ylim(0, 220)
     stacked_bars(ax_gen, gen_df,  "Generation [TWh/a]",      "Generation")
-    ax_gen.set_ylim(0, 400)
+    ax_gen.set_ylim(0, 440)
 
     # Panel 3: system cost stacked by carrier
     stacked_bars(ax_cost, cost_carrier_df, "System Cost [bn ZAR/a]", "System Cost by Carrier")
-    ax_cost.set_ylim(0, 400)
+    ct_total_vals = cost_carrier_df.sum(axis=1).reindex(periods).fillna(0).values
+    ct_rev_vals   = ct_rev_s.reindex(periods).fillna(0).values
+    if "_R" in scenario_name:
+        # 50% reinvested → within bars as downward hatch
+        reinvest_vals = ct_rev_vals * 0.5
+        ax_cost.bar(x, reinvest_vals,
+                    bottom=ct_total_vals - reinvest_vals, width=bw,
+                    color="white", alpha=0.7, hatch="\\\\",
+                    label="CT reinvested (50%)", edgecolor="#888888")
+        # other 50% leaves sector → on top in gray
+        ax_cost.bar(x, reinvest_vals,
+                    bottom=ct_total_vals, width=bw,
+                    color="#aaaaaa", alpha=0.7, hatch="//",
+                    label="CO₂ Cost (50%)", edgecolor="#555555")
+    else:
+        ax_cost.bar(x, ct_rev_vals,
+                    bottom=ct_total_vals, width=bw,
+                    color="#aaaaaa", alpha=0.7, hatch="//",
+                    label="CO₂ Cost", edgecolor="#555555")
+    ax_cost.legend(loc="upper left", fontsize=7, ncol=2)
+    ax_cost.set_ylim(0, 500)
 
-    # Panel 4: CO₂
-    ax_co2.bar(x, co2_s.values, width=bw, color="#555555")
+    # Panel 4: CO₂ emissions + CT revenue on secondary axis
+    ax_co2.bar(x, co2_s.values, width=bw, color="#aaaaaa", hatch="//", edgecolor="#555555",
+               label="CO₂ Emissions")
     ax_co2.set_xlim(xlim)
     ax_co2.set_xticks(x); ax_co2.set_xticklabels(periods, rotation=45)
-    ax_co2.set_ylabel("CO₂ Emissions [MtCO₂/a]"); ax_co2.set_title("CO₂ Emissions")
+    ax_co2.set_ylabel("CO₂ Emissions [MtCO₂/a]"); ax_co2.set_title("CO₂ Emissions & CT Revenue")
     ax_co2.set_ylim(0, 220)
+    ax_co2.yaxis.grid(True, color="lightgray", linestyle="-", linewidth=0.5, zorder=0)
+    ax_co2.set_axisbelow(True)
+    if ct_rates and any(r > 0 for r in ct_rates.values()):
+        ax_co2b = ax_co2.twinx()
+        ax_co2b.plot(x, ct_rev_s.values, color="#8e44ad", marker="o", linewidth=2, label="CT Revenue")
+        if "_R" in scenario_name:
+            ax_co2b.plot(x, reinvest_s.values, color="#8e44ad", marker="o", linewidth=2,
+                         linestyle="--", label=f"Reinvested ({int(REINVEST_FRACTION*100)}%)")
+        ax_co2b.set_ylabel("CT Revenue [bn ZAR/a]", color="#8e44ad")
+        ax_co2b.tick_params(axis="y", labelcolor="#8e44ad")
+        ax_co2b.set_ylim(0, 160)
+        h1, l1 = ax_co2.get_legend_handles_labels()
+        h2, l2 = ax_co2b.get_legend_handles_labels()
+        ax_co2.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper right")
 
     # Panel 5: emissions intensity
     ax_ei.plot(x, ei_s.values, color="#e74c3c", marker="o", linewidth=2)
@@ -758,6 +813,8 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     ax_ei.set_ylabel("Emissions Intensity [kgCO₂/MWh]")
     ax_ei.set_title("Emissions Intensity")
     ax_ei.set_ylim(0, 1000)
+    ax_ei.yaxis.grid(True, color="lightgray", linestyle="-", linewidth=0.5, zorder=0)
+    ax_ei.set_axisbelow(True)
 
     # Panel 6: fossil capacity + RE curtailment
     fossil_carriers = [("coal", "Coal"), ("ccgt_steam", "CCGT"), ("ocgt", "OCGT/Gas")]
@@ -771,7 +828,9 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     ax_coal.set_ylabel("Fossil Capacity [GW]")
     ax_coal.set_title("Fossil Capacity & RE Curtailment")
     ax_coal.set_xticks(x); ax_coal.set_xticklabels(periods, rotation=45)
-    ax_coal.set_ylim(0, 50)
+    ax_coal.set_ylim(0, 70)
+    ax_coal.yaxis.grid(True, color="lightgray", linestyle="-", linewidth=0.5, zorder=0)
+    ax_coal.set_axisbelow(True)
     ax_coal2 = ax_coal.twinx()
     ax_coal2.plot(x, curtail_s.reindex(periods).fillna(0).values,
                   color="#e67e22", marker="s", linewidth=2, label="RE curtailment")
@@ -808,7 +867,9 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     ax_stor.set_xticks(x); ax_stor.set_xticklabels(periods, rotation=45)
     ax_stor.set_ylabel("Storage Power [GW]")
     ax_stor.set_title("Storage (Battery & PHS)")
-    ax_stor.set_ylim(0, 100)
+    ax_stor.set_ylim(0, 120)
+    ax_stor.yaxis.grid(True, color="lightgray", linestyle="-", linewidth=0.5, zorder=0)
+    ax_stor.set_axisbelow(True)
     ax_stor2 = ax_stor.twinx()
     ax_stor2.plot(x, stor_energy_s.reindex(periods).fillna(0).values,
                   color="#c0392b", marker="^", linewidth=2, linestyle="--", label="Storage Energy [GWh]")
@@ -819,27 +880,9 @@ def plot_pathway(n, opts, gen_emissions_df=None, scenario_name="", ct_rates=None
     h2, l2 = ax_stor2.get_legend_handles_labels()
     ax_stor.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper left", ncol=2)
 
-    # Panel 8: new build per period [GW] + CT revenue lines
-    stacked_bars(ax_new, newbuild_df, "New Build [GW]", "New Build per Period & CT Revenue")
-    ax_new.set_ylim(0, 100)
-    ax_new2 = ax_new.twinx()
-    ax_new2.set_ylabel("CT Revenue [bn ZAR/a]", color="#8e44ad")
-    ax_new2.tick_params(axis="y", labelcolor="#8e44ad")
-    ax_new2.set_ylim(0, 100)
-    ax_new2.plot(x, ct_rev_s.values, color="#8e44ad", marker="o",
-                 linewidth=2, label="CT Revenue")
-    if ct_rev_s.sum() > 0:
-        ax_new2.plot(x, reinvest_s.values, color="#8e44ad", marker="o",
-                     linewidth=2, linestyle="--",
-                     label=f"Reinvested ({int(REINVEST_FRACTION * 100)}%)")
-        ax_new2.annotate(
-            f"50% of CT revenues reinvested in RE + storage",
-            xy=(0.98, 0.02), xycoords="axes fraction",
-            ha="right", va="bottom", fontsize=7, color="#8e44ad", style="italic",
-        )
-    h1, l1 = ax_new.get_legend_handles_labels()
-    h2, l2 = ax_new2.get_legend_handles_labels()
-    ax_new.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left", ncol=2)
+    # Panel 8: new build per period [GW]
+    stacked_bars(ax_new, newbuild_df, "New Build [GW]", "New Build per Period")
+    ax_new.set_ylim(0, 120)
 
     fig.tight_layout()
     return fig

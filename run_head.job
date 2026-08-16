@@ -28,6 +28,6 @@ $SNAKEMAKE solve_all \
     --jobs 16 \
     --latency-wait 120 \
     --rerun-incomplete \
-    # -F \
+    -F \
     --keep-going \
     2>&1 | tee logs/snakemake_head_$(date +%Y%m%dT%H%M%S).log
