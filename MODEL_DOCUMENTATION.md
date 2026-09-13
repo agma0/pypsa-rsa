@@ -1,6 +1,6 @@
 # Model Documentation: PyPSA-RSA Carbon Tax Analysis (Paper 0)
 
-*Last updated: 2026-06-08*
+*Last updated: 2026-09-13*
 
 ---
 
@@ -131,12 +131,35 @@ The P0_BASE solved network is loaded from `results/Coal_Flexibilisation/P0_BASE/
 |---|---|---|
 | `fixed_conventional` | `BASE_PMR1b` | Realistic current Eskom heat rates (Medupi 9.58 GJ/MWh, ~38% efficiency). Design-efficiency parameters (VAR_HR) suppressed the CT signal entirely — coal remained cheaper than gas even with the full CT applied. |
 | `phased_decom` | `DELAYED_ESKOM_2035` | Coal retirements begin 2035; full fleet (41.4 GW) available in 2030, consistent with Eskom's delayed Just Transition trajectory. |
-| `override_coal_msl` | `0.4` | Minimum stable load = 40% of p_max_pu. With EAF_60 (p_max_pu ≈ 0.60), this yields an effective minimum of ~0.24 of nameplate capacity (coal CF ≈ 0.24–0.28 in 2030). This value is consistent with the coal flexibilisation premise of the scenario and leaves headroom for the CT to reduce dispatch in periods where coal operates above its floor. |
-| `coal_ramp_rate_multiplier` | `1.5` | Coal ramp limits multiplied by 1.5, representing flexibility improvements; limited effect at 182h but relevant for final 8760h runs. |
+| `override_coal_msl` | `0.65` (was `0.4`) | Minimum stable load = 65% of p_max_pu. Raised after colleague feedback that 40% was unrealistically low. Matches the `min_stable_level (%)` value entered per-station in `fixed_technologies.xlsx` (uniformly 0.65 across all 17 coal/sasol_coal units) — see 7.4.2 for why that per-station column can't simply be read directly. |
+| `coal_ramp_rate_multiplier` | `1` (was `1.5`) | Coal ramp limits left at base rate from `fixed_technologies.xlsx` (no artificial speed-up). Reverted from the `1.5` "coal flexibilisation" assumption for the same reason as `SL_0` in 7.4.1 — avoid a second free flexibility variable confounding the CT-retirement signal. |
 | `annual_availability` | `EAF_60` | Maximum energy availability factor for coal fleet = 60% of hours (sets p_max_pu upper bound). Reflects a modest recovery from current Eskom performance (~55–58%) by 2030; consistent with Meridian base parameterisation. |
-| `unit_committment` | `0` | LP dispatch without unit commitment; no startup/shutdown costs or min up/down times. Appropriate for snapshot analysis and non-consecutive timesteps. |
-| `endogenous_coal_decom` | `0` | Decommissioning is exogenous and fixed by `phased_decom`. |
-| `dispatch_coal_flex` | `SL_0` | Only active when `unit_committment=1`; has no effect on P0. |
+| `unit_committment` | `1` (was `0`) | Enables the linearised unit commitment formulation for coal (`Generator-status`/`Generator-p_nom_ret` variables). Required as a prerequisite for `endogenous_coal_decom` — see 7.4.1. |
+| `endogenous_coal_decom` | `1` (was `0`) | Coal retirement is no longer fixed exactly to the `phased_decom` schedule; the model may retire *more* capacity than the schedule floor if economically optimal (`>=` instead of `==` constraint). See 7.4.1. |
+| `dispatch_coal_flex` | `SL_0` (unchanged) | Zero permitted intra-year startups: non-retired coal capacity must stay committed (`status=1`) for every hour of the year. Deliberately kept at 0 — see 7.4.1 for rationale. |
+
+#### 7.4.1 Update 2026-09-13: enabling endogenous coal retirement to test CT influence
+
+**Motivation:** the original P0 setup (`endogenous_coal_decom=0`) fixes coal retirement exactly to the exogenous `phased_decom` schedule (`DELAYED_ESKOM_2035`) — the carbon tax can change *how much* coal dispatches, but can never change *when* it is decommissioned. To test whether the carbon tax accelerates coal retirement (a core question for Paper 0), the retirement decision itself needs to become part of the optimization.
+
+**Mechanism:** `endogenous_coal_decom` is only read inside `add_coal_decom()` (`prepare_and_solve_network.py`), which is itself only called when `unit_committment=1` — the retirement variable `Generator-p_nom_ret` does not exist otherwise. Both flags must therefore be enabled together; setting `endogenous_coal_decom=1` alone has no effect (and would raise a `KeyError` in the reserve-margin constraint, which also references `Generator-p_nom_ret` when this flag is set). With both flags on, the retirement constraint switches from `p_nom_ret == phased_decom_schedule` to `p_nom_ret >= phased_decom_schedule`: the model keeps the schedule as a *floor* but can retire earlier/more if the annual fixed O&M cost of keeping a block available no longer justifies its (CT-reduced) contribution margin.
+
+**Why `dispatch_coal_flex` stays at `SL_0` (no intra-year cycling):** the minimum stable load (`override_coal_msl`) already applies to `p_min_pu` unconditionally, regardless of `unit_committment` or `dispatch_coal_flex` (`set_coal_msl()`, always called in `add_electricity.py`) — coal can already move between its MSL floor and `p_max_pu` every hour in response to the CT price signal. What `SL_0` withholds is the ability to shut a block down to 0% for part of the year and restart later (capped startup count under `SL_X`, X>0). Keeping `SL_0`:
+- isolates the CT effect on retirement from a second free variable (operational cycling behaviour), keeping the causal story attributable to the carbon price alone
+- is the *stricter* test: coal cannot dodge low-price hours by cycling off, so if retirement still doesn't respond to CT under `SL_0`, that is a more robust (not an artefact-of-flexibility) finding
+- keeps the LP smaller (no per-generator startup-count constraints), relevant at `LC` = full 8760h resolution
+
+Operational flexibility (`SL_X`, X>0) is flagged as a possible robustness extension: it could make continued coal operation more profitable (surviving low-price hours by idling instead of running at the MSL floor), which would tend to *reduce* CT-driven retirement relative to the `SL_0` result — i.e. the `SL_0` runs should be read as an upper bound on the CT retirement effect.
+
+#### 7.4.2 Update 2026-09-13: `override_coal_msl` raised to 0.65 — and why the per-station Excel values can't be used directly
+
+**Feedback:** a colleague flagged that the previous blanket minimum stable load of 40% (`override_coal_msl=0.4`) was unrealistically low for the Eskom coal fleet.
+
+**Checked whether the per-station `min_stable_level (%)` column in `fixed_technologies.xlsx` (sheet `conventional`) could be used instead of a blanket override**, since it looks like a per-plant input. Two findings:
+1. **The column carries no actual differentiation**: all 17 fixed coal/sasol_coal units (Arnot through Tutuka, Secunda_coal, Sasolburg_coal) currently have the identical value `0.65`, regardless of technology (subcritical vs. supercritical) — there is no real per-station calibration to recover.
+2. **The column is dead code for fixed generators even if it were differentiated.** `attach_fixed_generators()` initialises `p_min_pu` to 0 for every generator (`init_pu_profiles()`, `add_electricity.py:439-440`) and only explicitly overwrites it for wind/solar/RMIPPP — never for coal — then commits that 0 as a time-varying override (`add_electricity.py:1043`). Because PyPSA's `get_switchable_as_dense` always prefers a time-varying column over the static default once one exists, the static per-station `0.65` on `n.generators.p_min_pu` becomes unreachable. There is an unused function, `adjust_com_msl()` (`add_electricity.py:1442`), that would restore the static per-generator value for committable generators before the override — but it is never called in the pipeline. `set_coal_msl()`'s `"None"`/`"NA"` branch reads the (already-zeroed) time-varying column, so setting `override_coal_msl` to `"None"` currently produces **0% minimum stable load**, not the per-station value — the opposite of the intended effect.
+
+**Decision:** since the per-station values are uniform anyway, setting `override_coal_msl = 0.65` reproduces exactly what a working per-station read would give, with no code change needed. Wiring up `adjust_com_msl()` correctly is only worth doing if the per-station values in `fixed_technologies.xlsx` are later differentiated by plant/technology (flagged as a possible future refinement, not needed for Paper 0).
 
 ### 7.5 Costs & investment parameters
 
@@ -552,7 +575,10 @@ The optimizer never invests beyond the reinvestment floor — it treats the cons
 |---|---|---|
 | `fixed_conventional` | `BASE_PMR1b` | Realistic Eskom heat rates. |
 | `carbon_tax` | `IRP23` | 462 R/tCO₂ in 2030 per IRP 2023. |
-| `override_coal_msl` | `0.4` | 40% of p_max_pu; consistent with coal flexibilisation premise. |
+| `override_coal_msl` | `0.65` | 65% of p_max_pu; raised from 0.4 after colleague feedback — see 7.4.2. |
+| `coal_ramp_rate_multiplier` | `1` | Base ramp rate, no artificial speed-up — see 7.4 table and 7.4.1 rationale. |
+| `unit_committment` | `1` | Enables retirement variables for endogenous decom — see 7.4.1. |
+| `endogenous_coal_decom` | `1` | Coal retirement responds to CT instead of following a fixed schedule — see 7.4.1. |
 | `annual_availability` | `EAF_60` | 60% EAF for coal fleet in 2030. |
 | `extendable_max_annual` | `UNC` | No annual build cap for any scenario; the only differences between scenarios are the CT price signal and the reinvestment constraint. |
 | `extendable_min_total` | `IRP25_BQ` | IRP 2025 committed pipeline as minimum floor; global constraints are active (wind 8.45 GW, solar 24.3 GW, OCGT 6.42 GW, battery 2.81 GW at floor in P0_BASE). |
