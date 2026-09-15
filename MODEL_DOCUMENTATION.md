@@ -861,4 +861,96 @@ Im Code gibt es zwei verschiedene Arten diese Felder zu prüfen:
 
 ---
 
+### Offener Punkt (2026-09-13): Transmission-Engpässe trotz aktiviertem Ausbau — weitermachen später
+
+**Stand:** `line_expansion=copt` ist aktiv, bestehende Korridore sind `p_nom_extendable=True` mit echten Kosten (siehe Abschnitt 8 / `update_transmission_costs()`, 6000 ZAR/MW/km). Das ist **neuer** Code — nicht der alte PyPSA-ZA-Code, den eine frühere Session (`CARBON_TAX_SCENARIOS.md`, Stand 2026-06-06) noch für nötig hielt. Dieser Stand ist überholt.
+
+**Befund — Auslastung im gelösten `P0_BASE` (LC, 8760h), geprüft mit `n.links_t.p0`:**
+
+| Korridor | Max. Auslastung | Stunden > 95% |
+|---|---|---|
+| Northern Cape–Hydra Central | 100.0% | 416 h |
+| North West–Gauteng | 99.999% | 2828 h |
+| Free State–North West | 99.999% | 233 h |
+| Limpopo–Gauteng | 99.999% | 151 h |
+| North West–Mpumalanga | 99.994% | 67 h |
+| Free State–Eastern Cape | 99.991% | 1232 h |
+| **Free State–Gauteng** | 99.991% | **4448 h** (>50% des Jahres) |
+
+Mehrere Korridore sind also strukturell verstopft, nicht nur an einzelnen Spitzen.
+
+**Das Rätsel:** Trotz dieser Dauerlast baut der Solver so gut wie nichts aus — z.B. Free State–Gauteng: `p_nom = 394.83 MW → p_nom_opt = 394.84 MW` (numerisches Rauschen, keine echte Investition). Der Ausbau-Mechanismus ist aktiv und korrekt bepreist, aber wirtschaftlich offenbar nie attraktiv genug — auch nicht bei 100%-Dauerlast.
+
+**Offene Frage, die vor jedem Ausbau-Feature (neue Korridore) erst geklärt werden sollte:** Warum lohnt sich der Ausbau selbst bestehender, verstopfter Korridore nicht?
+Mögliche Ursachen zum Prüfen:
+- Nur 2 Investitionsperioden (2025, 2030) im P0-Snapshot → Annuität der Transmission-Capex wird ggf. nur über sehr wenige gewichtete Jahre amortisiert, obwohl `hvac_overhead.lifetime=40` Jahre unterstellt — Diskrepanz zwischen Line-Lifetime und Investment-Period-Weighting möglich.
+- Fehlt eine Bewertung der vermiedenen Kosten durch die Verstopfung (z.B. wird Redispatch/lokale Kohle-Erzeugung durch die Engpässe erzwungen, aber ist das teurer als der Netzausbau? Müsste durchgerechnet werden.)
+- Eventuell verhindert eine andere Nebenbedingung (Reserve-Margin, `p_nom_min`-Fixierung) den Ausbau unabhängig vom reinen Kostenvergleich.
+
+**Zwei Wege für "neue Korridore", vorgemerkt für später:**
+- **Weg A (exogen, kein Code nötig):** `transmission_grid = existing+tdp+<SZENARIONAME>` in `scenarios_to_run.xlsx` + Zeilen in `transmission_expansion.xlsx` (aktuell komplett leer — nur Spaltenköpfe) eintragen: bus0, bus1, Länge, Spannungsebene, und pro Jahr eine feste Anzahl neuer Leitungen. Mechanismus existiert bereits in `build_topology.py:106-133`, ist aber exogen (kein Solver-Entscheid, sondern fester Fahrplan).
+- **Weg B (endogen, Solver entscheidet, braucht Code-Änderung):** `add_components_to_network()` in `base_network.py` müsste für Kandidaten-Korridore (Bus-Paare ohne bestehende Leitung) zusätzliche Links mit `p_nom=0`, `p_nom_extendable=True`, `p_nom_max=<Obergrenze>` anlegen. `update_transmission_costs()` bepreist diese automatisch mit — kein Zusatzaufwand dort.
+
+**Empfehlung, bevor Weg A oder B umgesetzt wird:** Erst das Rätsel oben klären — wenn der Solver selbst bestehende Engpass-Korridore nicht ausbaut, würde er vermutlich auch neue Korridore mit derselben Kostenlogik nicht bauen. Sonst baut man ein Feature, das dieselbe (noch unverstandene) wirtschaftliche Blockade hat.
+
+#### Update (2026-09-14): Rätsel vermutlich geklärt — Scale-Bug beim Auslesen + Ausbau wirtschaftlich wohl tatsächlich unattraktiv
+
+**Kernbefund — ×1000-Skalierung wird beim Export nicht zurückgesetzt:** `scale_costs(n, 1e3)` in `prepare_and_solve_network.py:561` teilt kurz vor dem Solve alle `*cost*`-Spalten (`capital_cost`, `marginal_cost`) auf `Generator`, `StorageUnit` und `Link` durch 1000 — offenbar für bessere numerische Konditionierung des Solvers. Diese Skalierung wird **danach nie zurückgesetzt**, bevor `n.export_to_netcdf()` läuft. Konsequenz: In jedem `solved.nc` stehen `capital_cost`, `marginal_cost` und alle daraus abgeleiteten Dual-Werte (`n.buses_t.marginal_price` etc.) faktisch in **Tausend-ZAR statt ZAR** — Faktor 1000 zu klein gegenüber der Doku in Abschnitt 8/9.3.
+
+Das erklärt den ursprünglichen Befund direkt: `capital_cost` der Free State–Gauteng-Leitung stand mit 290,995 im solved network — bei 337,96 km Länge und der dokumentierten Rate (~689 ZAR/MW/km/Jahr × 1,25 Routing-Faktor) wären ~291.000 ZAR/MW/Jahr zu erwarten. **290,995 × 1000 ≈ 291.027 — exakte Übereinstimmung.** Die Kostenformel selbst ist korrekt (geprüft: `capital_cost / length` ist über alle 38 ausbaubaren Links konstant = 0,861037, wie von der Formel erwartet); es ist reines Skalierungs-Rauschen beim Ablesen, kein Fehler in `update_transmission_costs()`. Gegenprobe an anderen Carriern bestätigt den Faktor 1000: `n.generators.capital_cost` für `wind` ≈ 1117 (skaliert) × 1000 ≈ 1,12 Mio. ZAR/MW/Jahr — realistischer Wert für Wind-Annuität in Südafrika. `n.objective` ≈ 2,313 Mrd. (skaliert) × 1000 ≈ 2,31 Billionen ZAR über den P0-Horizont — passt zur Größenordnung des südafrikanischen Elektrizitätssystems.
+
+**Damit neu bewertet, mit real reskalierten Werten (×1000):**
+- Reale Kapitalkosten der FS–GP-Leitung: **~291.000 ZAR/MW/Jahr** (nicht 291 ZAR/MW/Jahr, wie das ungeskalierte Attribut suggeriert).
+- Reale Preisdifferenz zwischen den beiden Bus-Knoten während der Hoch-Auslastungsstunden (>95%): **~30–32 ZAR/MWh** (statt der vorher abgelesenen 0,03 ZAR/MWh) — klein, aber nicht null.
+- Grobe Schätzung des über das gesamte Jahr realisierten "Congestion Rent" dieses einen Korridors (Preisdifferenz × Fluss × Snapshot-Gewicht, aufsummiert über alle Snapshots, reskaliert): **~57 Mio. ZAR/Jahr**, verteilt auf 394,8 MW bestehende Kapazität ≈ **~144.000 ZAR/MW/Jahr im Schnitt** — spürbar unter den ~291.000 ZAR/MW/Jahr Grenzkosten einer Erweiterung. Da der **Grenz**wert einer zusätzlichen MW typischerweise noch unter dem **Durchschnitts**wert der bestehenden Kapazität liegt (Erweiterung drückt den Preis-Spread selbst), spricht das klar gegen eine profitable Erweiterung — konsistent mit dem Solver-Ergebnis (keine echte Investition).
+
+**Einschränkung dieser Schätzung:** Es ist ein grober Proxy (Preis-Spread × Fluss), kein echter Schattenpreis der Kapazitätsrestriktion. PyPSA/linopy legt für **ausbaubare** Links kein `mu_upper` ab (das gibt es nur bei fixem `p_nom`) — die gekoppelte "Link-ext-p-upper"-Restriktion hat einen eigenen Dual-Wert, der aktuell nicht mit exportiert wird. Für eine belastbarere Zahl müsste man entweder diesen Dual-Wert vor dem Verwerfen des linopy-Modells sichern, oder eine Sensitivitätsanalyse fahren (Resolve mit `p_nom_min` + 1 MW auf dem Korridor, Kostendifferenz vergleichen).
+
+**Zusatzhypothese zum kleinen Preis-Spread trotz 99,999%-Auslastung:** Das Netz ist ein reines Transport-Modell (keine Kirchhoff-Restriktionen) mit 38 potenziell ausbaubaren Korridoren zwischen den 10 Regionen — nahezu vermascht. In so einem Modell bedeutet hohe Auslastung auf einem einzelnen Korridor nicht zwingend echte lokale Knappheit, solange Ausweichrouten mit ähnlichen Grenzkosten existieren; der Flow sättigt dann zwar diesen einen Link, aber der volkswirtschaftliche Wert einer Entlastung bleibt gering, weil das Gesamtsystem den Engpass günstig umgeht. Das würde erklären, warum selbst ein strukturell "verstopfter" Korridor kaum Preisdifferenz zeigt.
+
+**Was sich konkret machen lässt:**
+1. **Fix (empfohlen, kleiner Eingriff):** In `prepare_and_solve_network.py` nach dem Solve, vor `n.export_to_netcdf(...)`, die Kosten-Spalten wieder ×1000 zurückskalieren (`scale_costs(n, 1e-3)` erneut aufrufen). Danach stehen `capital_cost`, `marginal_cost` und `marginal_price` in `solved.nc` wieder in echten ZAR — vermeidet, dass dieses Missverständnis bei jeder künftigen Auswertung erneut auftritt. Alternativ, falls die Skalierung für andere Skripte/Plots bewusst beibehalten werden soll: mindestens einen klaren Kommentar/README-Hinweis ergänzen ("Kosten in solved.nc sind in Tausend-ZAR").
+2. **Ursprüngliches Rätsel als vermutlich gelöst behandeln:** Die Nicht-Erweiterung ist mit hoher Wahrscheinlichkeit eine korrekte, wirtschaftlich begründete Optimierer-Entscheidung, kein Bug in der Kosten- oder Constraint-Logik. Bevor an neuen Korridoren (Weg A/B, s.o.) gearbeitet wird, lohnt keine weitere Fehlersuche im bestehenden Ausbau-Mechanismus für existierende Korridore — die Wirtschaftlichkeitsschwelle scheint einfach nicht erreicht zu werden, und neue Korridore träfen vermutlich auf dieselbe Hürde.
+3. **Falls doch mehr Ausbau gewünscht ist** (z.B. für ein Szenario mit expliziter Netzausbau-Story): eher über Weg A (exogener Fahrplan in `transmission_expansion.xlsx`) argumentieren, nicht über einen vermeintlichen Bug im endogenen Mechanismus — der Mechanismus funktioniert, das Ergebnis ist nur nicht das erwartete.
+
+#### Update (2026-09-14, Teil 2): Kosten-Plausibilität, Ein-Perioden-Vergleich, Leitungspuffer
+
+**1. Sind die 6000 ZAR/MW/km plausibel?** Ja, im Kern — Herkunft ist die Quelle **Hagspiel** (häufig genutzte Referenz für HVAC-Freileitungskosten, u.a. in PyPSA-EUR verbreitet), identisch in allen drei älteren Cost-Sheets (`za_original`, `original`, `ambitions` in `costs_pypsa-za.xlsx`). Im `updated`-Sheet steht derselbe Wert noch im Original: **400 EUR/MW/km** (2030).
+
+Aber: eine Inkonsistenz bei der Währungsumrechnung. Das Projekt hat eine zentrale, sonst überall genutzte Konstante `EUR_to_ZAR: 17.83` (`config.yaml:194`), angewendet über `convert_cost_units()` (`_helpers.py:642`) bzw. `add_electricity.py:224` auf alle EUR-Kosten. Der Transmission-Block `lines.hvac_overhead.investment: 6000` (`config.yaml:179`) ist dagegen **hart als ZAR-Zahl hinterlegt**, nicht über diese Pipeline umgerechnet — impliziter Kurs darin: 6000/400 = **15,0 ZAR/EUR**, nicht 17,83.
+
+Mit dem projekteigenen Kurs müsste es **400 × 17,83 = 7.132 ZAR/MW/km** heißen, nicht 6000 — die Leitungskosten sind aktuell **~16% zu niedrig** angesetzt. Für die Kernfrage ("warum kein Ausbau") ändert das nichts Grundsätzliches: real müssten die Kosten noch höher sein, was Ausbau noch unattraktiver macht, nicht attraktiver — bestätigt die Nicht-Investition zusätzlich.
+
+**2. Ergibt die 40-Jahre-Lebensdauer bei einem reinen 2030-Lauf (ohne 2025) noch Sinn?** Ja — sogar sauberer als im jetzigen 2-Perioden-Setup. In `set_investment_periods()` (`base_network.py:119-131`) bekommt ein einzelnes Investitionsjahr `n.investment_period_weightings["years"] = 1` → `objective = 1.0` (nur t=0, keine Diskontierung). Die Annuität (CRF über die 40 Jahre Lebensdauer) wird damit exakt gegen **ein** repräsentatives Jahr Nutzen gerechnet — Standardmethode für Greenfield-Ausbau-Modelle mit nur einem Snapshot-Jahr. Die Lebensdauer steckt schon in der Annuitätsformel, nicht in der Anzahl simulierter Perioden.
+
+**Aber:** ein Solo-2030-Lauf würde die Ausbau-Entscheidung tatsächlich **anders** ausfallen lassen als der jetzige P0-Lauf (2025+2030 zusammen) — nicht wegen der Lebensdauer, sondern wegen der Perioden-Gewichtung. Im 2-Perioden-Modell ist jede Leitung in beiden Perioden aktiv (`build_year=2024`, `lifetime=100`), zahlt also Kapitalkosten gewichtet über **beide** Perioden (4,225549 + 7,550219 = **11,78** effektive Jahre), bekommt aber vermutlich nur in 2030 nennenswerten Engpass-Nutzen (2025: weniger RE, weniger Engpässe). Daraus ergibt sich ein Nutzen/Kosten-Schwellenwert von **11,78/7,55 ≈ 1,56** im 2-Perioden-Modell gegen **1,0** in einem Solo-2030-Lauf. Ein reiner 2030-Lauf würde Transmission-Ausbau also tendenziell **attraktiver** aussehen lassen, weil die (kaum kongestionierte) 2025-Periode als Kostenballast wegfällt.
+
+**3. Ist ein Leitungspuffer/Sicherheitsmarge drin?** Ja, mehrere Ebenen, alle in der **bestehenden** Leitungskapazität (`p_nom`/`p_nom_min`), berechnet in `build_topology.py`:
+- **St.-Clair-Kurve** (`calc_line_limits()`, Zeile 246-258): physikalisch begründete Derating-Kurve für lange Freileitungen — begrenzt durch Spannungsstabilität statt nur durch die thermische Grenze (`min(thermal, SIL×53.736×length^-0.65)`). Kann bei langen Korridoren deutlich unter dem thermischen Limit liegen.
+- **N-1-Sicherheitsmarge** (`apply_n1_approximation()`, Zeile 193-199): bei Korridoren mit mehreren parallelen Leitungen wird die Leitung mit der **höchsten** Kapazität komplett rausgeworfen (Ausfall-Annahme), nur der Rest zählt. Bei nur einer Leitung: pauschal **30% Abschlag** (`n1_approx_single_lines: 0.7`, `config.yaml:173`).
+- `s_max_pu: 0.7` (`config.yaml:172`, ebenfalls "n-1 approximation" kommentiert) wird **nirgends im aktiven Code tatsächlich verwendet** (nur ein Docstring-Verweis in `base_network.py:38`) — totes/veraltetes Config-Feld, **kein** zusätzlicher (doppelter) Abschlag.
+
+Konsequenz: die gemeldeten 99,999%-Auslastungswerte beziehen sich auf ein bereits konservativ (N-1-sicher) berechnetes Limit, nicht auf die physikalische Maximalgrenze der Leitung — der Korridor ist also nicht wirklich am absoluten physikalischen Anschlag. Das ändert aber nichts an der Ausbau-Entscheidung selbst: `p_nom_extendable=True` mit `p_nom_max=inf` erlaubt dem Solver, über diesen konservativen Wert hinauszugehen, wenn es sich lohnt — die eigentliche Hürde bleibt die Kosten-Nutzen-Rechnung aus Teil 1 oben.
+
+**Kurz zusammengefasst, alle drei Punkte zusammen:** Nichts davon widerlegt den Befund "kein Ausbau ist wirtschaftlich korrekt" — die Kosten sind eher zu niedrig als zu hoch angesetzt (Punkt 1), die Lebensdauer-Logik ist in Ordnung (Punkt 2, mit dem Perioden-Caveat), und der Leitungspuffer beeinflusst nur die Optik der Auslastungs-Zahl, nicht die Ausbau-Fähigkeit (Punkt 3).
+
+#### Update (2026-09-14, Teil 3): Wie groß ist der Puffer konkret bei Free State–Gauteng?
+
+Rohdaten aus `resources/Coal_Flexibilisation/P0_BASE/lines.geojson` für diesen Korridor: **zwei parallele 275-kV-Leitungen** (nicht eine, nicht 400 kV wie der globale `v_nom`-Default).
+
+| Größe | Beide Leitungen zusammen (N-0) | Nach N-1 (= `p_nom` im Modell) |
+|---|---|---|
+| Thermisches Limit | 1.842 MW | 921 MW |
+| St.-Clair-Limit (spannungsstabilitätsbegrenzt) | 838,3 MW | **394,8 MW** |
+
+Weil es **zwei** Leitungen sind, greift bei der N-1-Berechnung (`apply_n1_approximation()`) nicht der pauschale 30%-Abschlag (`n1_approx_single_lines: 0.7` — der gilt nur für Korridore mit **einer** Leitung), sondern die härtere Regel: die stärkere der beiden Leitungen wird komplett als ausgefallen angenommen, nur die schwächere bleibt übrig. Bei zwei ungefähr gleich starken Leitungen halbiert das die Kapazität ungefähr — deutlich mehr als 30% Abschlag.
+
+**Also nicht 70%, sondern:** 99,999% Auslastung von 394,8 MW (`p_nom`) entspricht real
+- **~47%** der St.-Clair-Grenze beider Leitungen zusammen (394,8 / 838,3)
+- **~21%** der reinen thermischen Grenze beider Leitungen (394,8 / 1.842)
+
+Die 70%-Umrechnung (aus `n1_approx_single_lines`) würde nur für Korridore mit tatsächlich nur **einer** Leitung stimmen — für Free State–Gauteng nicht, weil es zwei sind. Eine Tabelle mit dieser Umrechnung für alle 7 in Abschnitt "Befund" gelisteten Engpass-Korridore (jeweils prüfen: Anzahl paralleler Leitungen pro Korridor, dann die passende Umrechnung anwenden) steht noch aus.
+
+---
+
 
