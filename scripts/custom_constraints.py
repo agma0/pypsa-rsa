@@ -329,9 +329,9 @@ def reserve_margin_constraints(n, sns, scenario_setup, snakemake):
 def add_annual_co2_constraints(n, sns, scenario_setup, gen_emissions):
 
     annual_limits = pd.read_excel(
-        os.path.join(scenario_setup["sub_path"], "emissions.xlsx"), 
+        os.path.join(scenario_setup["sub_path"], "emissions.xlsx"),
         sheet_name="annual_carbon_constraint",
-        index_col=[0]).loc[scenario_setup["carbon_constraints"]]
+        index_col=[0]).loc[scenario_setup["co2_cap"]]  # AM adjusted: was carbon_constraints, which also holds the unrelated CT_REINVEST flag
 
     conv = 1
     if annual_limits.unit.split("/")[0] == "Mt":
